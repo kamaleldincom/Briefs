@@ -1,0 +1,51 @@
+// src/lib/config/sources.ts
+export const TRUSTED_SOURCES = [
+    'bbc-news',
+    'cnn',
+    'reuters',
+    'al-jazeera-english',
+    'the-washington-post',
+    'the-wall-street-journal',
+    'bloomberg',
+    'associated-press',
+    'fox-news',
+    'abc-news',
+    'nbc-news',
+    'the-new-york-times',
+    'usa-today',
+    'the-guardian-uk',
+    'the-huffington-post',
+    'the-verge',
+    'the-economist',
+    'axios',
+    'business-insider',
+    'cbs-news',
+    'msnbc',
+    'independent',
+    'politico',
+    'mtv-news',
+    'national-geographic',
+    'new-scientist',
+    'next-big-future',
+    'techcrunch',
+    'news-com-au',
+    'the-irish-times',
+    'the-jerusalem-post',
+    'the-times-of-india',
+    'newsweek',
+    'time',
+    'reuters',
+
+  ] as const;
+  
+  // For reference - these are the source IDs from NewsAPI
+  export const SOURCE_DETAILS = {
+    'bbc-news': { name: 'BBC News', bias: 0 },
+    'cnn': { name: 'CNN', bias: -0.2 },
+    'reuters': { name: 'Reuters', bias: 0 },
+    'the-washington-post': { name: 'The Washington Post', bias: -0.1 },
+    'the-wall-street-journal': { name: 'The Wall Street Journal', bias: 0.1 },
+    'bloomberg': { name: 'Bloomberg', bias: 0 },
+    'associated-press': { name: 'Associated Press', bias: 0 },
+    'fox-news': { name: 'Fox News', bias: 0.3 }
+  };
