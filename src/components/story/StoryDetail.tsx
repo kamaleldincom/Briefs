@@ -21,8 +21,20 @@ export default function StoryDetail({ story }: StoryDetailProps) {
   return (
     <div className="min-h-screen bg-background">
       {/* Header with metadata */}
-      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+      <div className=" top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container max-w-4xl mx-auto px-4 py-6">
+        {story.metadata.imageUrl && (
+              <div className="mb-4">
+                <img 
+                  src={story.metadata.imageUrl} 
+                  alt={story.metadata.imageCaption || story.title}
+                  className="w-full h-40 object-cover rounded-lg"
+                />
+                {story.metadata.imageCaption && (
+                  <p className="text-sm text-gray-500 mt-2">{story.metadata.imageCaption}</p>
+                )}
+              </div>
+            )}
           <h1 className="text-3xl font-bold mb-4">{story.title}</h1>
           <div className="flex flex-wrap gap-4 items-center text-sm text-gray-500">
             <div className="flex items-center gap-1">
@@ -37,36 +49,16 @@ export default function StoryDetail({ story }: StoryDetailProps) {
         </div>
       </div>
 
-      {/* Tabs and Content */}
       <div className="container max-w-4xl mx-auto px-4">
-        <Tabs defaultValue="summary" className="mt-6">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="timeline">Timeline</TabsTrigger>
-            <TabsTrigger value="sources">Sources</TabsTrigger>
-            <TabsTrigger value="analysis">Analysis</TabsTrigger>
-          </TabsList>
 
           <div className="mt-6">
-            {/* Summary Tab */}
-            <TabsContent value="summary">
+            {/* Summary */}
               <div className="space-y-6">
                 {/* Latest Update with Image */}
         <Card>
           <CardContent className="p-6">
             <h3 className="text-xl font-semibold mb-4">Latest Development</h3>
-            {story.metadata.imageUrl && (
-              <div className="mb-4">
-                <img 
-                  src={story.metadata.imageUrl} 
-                  alt={story.metadata.imageCaption || story.title}
-                  className="w-full rounded-lg"
-                />
-                {story.metadata.imageCaption && (
-                  <p className="text-sm text-gray-500 mt-2">{story.metadata.imageCaption}</p>
-                )}
-              </div>
-            )}
+            
             <div className="bg-muted p-4 rounded-lg">
               <div className="text-sm text-gray-500 mb-2">
                 {formatDate(story.metadata.lastUpdated)}
@@ -75,6 +67,17 @@ export default function StoryDetail({ story }: StoryDetailProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Analysis */}
+        <Card>
+                <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Story Analysis</h3>
+                  <div className="text-gray-500 text-center py-8">
+                    <h3 className="text-lg font-semibold mb-2">AI Analysis Coming Soon</h3>
+                    <p>We'll provide AI-enhanced analysis of different perspectives and key insights.</p>
+                  </div>
+                </CardContent>
+              </Card>
 
         {/* Key Points of Contention */}
         <Card>
@@ -112,13 +115,12 @@ export default function StoryDetail({ story }: StoryDetailProps) {
             ))}
           </CardContent>
         </Card>
-              </div>
-            </TabsContent>
+              
 
             {/* Timeline Tab */}
-            <TabsContent value="timeline">
               <Card>
                 <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Developments Timeline</h3>
                   <div className="space-y-8">
                     {/* Latest Update */}
                     <div className="border-l-2 border-blue-500 pl-4 relative">
@@ -159,15 +161,15 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
 
-            {/* Sources Tab */}
-            <TabsContent value="sources">
+            {/* Sources */}
               <Card>
+                
                 <CardContent className="p-6">
-                  <div className="space-y-4">
+                <h3 className="text-xl font-semibold mb-4">All sources</h3>
+                  <div>
                     {story.sources.map((source, index) => (
-                      <div key={index} className="p-4 bg-muted rounded-lg">
+                      <div key={index} className="py-2 bg-muted rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">{source.name}</span>
                           <a 
@@ -184,21 +186,11 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* Analysis Tab */}
-            <TabsContent value="analysis">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="text-gray-500 text-center py-8">
-                    <h3 className="text-lg font-semibold mb-2">AI Analysis Coming Soon</h3>
-                    <p>We'll provide AI-enhanced analysis of different perspectives and key insights.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+              
+              <div className="m-4"></div>
+            
+              </div>
           </div>
-        </Tabs>
       </div>
     </div>
   );
