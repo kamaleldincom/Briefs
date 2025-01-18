@@ -5,6 +5,8 @@ export interface Source {
   url: string;
   bias: number;
   sentiment: number;
+  quote?: string;    // For notable statements
+  perspective?: string; // For different viewpoints
 }
 
 export interface StoryMetadata {
@@ -12,6 +14,9 @@ export interface StoryMetadata {
   lastUpdated: Date;
   totalSources: number;
   categories: string[];
+  latestDevelopment?: string;  // For latest updates
+  imageUrl?: string;           // For media
+  imageCaption?: string;
 }
 
 export interface StoryAnalysis {
@@ -19,20 +24,13 @@ export interface StoryAnalysis {
   keyPoints: string[];
   mainPerspectives: string[];
   controversialPoints: string[];
-  timeline: {
-      timestamp: Date;
-      event: string;
-      sources: string[];
+  notableQuotes: {
+    text: string;
+    source: string;
   }[];
-}
-
-export interface Story {
-  id: string;
-  title: string;
-  summary: string;
-  content: string;
-  imageUrl?: string;  // From NewsAPI's urlToImage
-  sources: Source[];
-  metadata: StoryMetadata;
-  analysis: StoryAnalysis;
+  timeline: {
+    timestamp: Date;
+    event: string;
+    sources: string[];
+  }[];
 }
