@@ -9,6 +9,17 @@ export interface Source {
   perspective?: string; // For different viewpoints
 }
 
+export interface Story {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  imageUrl?: string;
+  sources: Source[];
+  metadata: StoryMetadata;
+  analysis: StoryAnalysis;
+}
+
 export interface StoryMetadata {
   firstPublished: Date;
   lastUpdated: Date;

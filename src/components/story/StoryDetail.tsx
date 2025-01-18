@@ -23,7 +23,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
       {/* Header with metadata */}
       <div className=" top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container max-w-4xl mx-auto px-4 py-6">
-        {story.metadata.imageUrl && (
+          {story.metadata.imageUrl && (
               <div className="mb-4">
                 <img 
                   src={story.metadata.imageUrl} 

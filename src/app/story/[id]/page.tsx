@@ -3,11 +3,9 @@ import Link from "next/link";
 import StoryDetail from "@/components/story/StoryDetail";
 import { fetchLatestNews } from "@/lib/services/news";
 
-export default async function StoryPage({
-  params: { id }
-}: {
-  params: { id: string }
-}) {
+export default async function StoryPage({ params }: { params: { id: string } }) {
+  const { id } = await params; // Await the params object
+
   const stories = await fetchLatestNews();
   const story = stories.find(s => s.id === id);
 
