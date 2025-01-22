@@ -8,5 +8,5 @@ export const CONFIG = {
     aiModel: 'gpt-3.5-turbo-16k',
     maxSourcesPerStory: 5,
     storyRefreshInterval: 300000, // 5 minutes
-    cacheTimeout: 3600, // 1 hour
+    cacheTimeout: 600, // 1 hour
   } as const;
