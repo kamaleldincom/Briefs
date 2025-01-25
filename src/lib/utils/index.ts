@@ -37,3 +37,22 @@ export function formatBias(score: number): string {
   if (score >= -0.6) return 'Lean Left';
   return 'Strong Left';
 }
+
+export function getKeywords(text: string): Set<string> {
+  const cleaned = text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
+  const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
+  return new Set(
+    cleaned.split(' ')
+      .filter(word => word.length > 3 && !commonWords.has(word))
+  );
+}
+
+export function calculateSimilarity(text1: string, text2: string): number {
+  const keywords1 = getKeywords(text1);
+  const keywords2 = getKeywords(text2);
+  
+  const commonWords = [...keywords1].filter(word => keywords2.has(word));
+  const union = new Set([...keywords1, ...keywords2]);
+  
+  return commonWords.length / union.size;
+}
