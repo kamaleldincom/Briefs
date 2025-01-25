@@ -25,7 +25,10 @@ export class MongoDBStorage implements NewsStorage {
     
     const stories = await this.collection
       .find({})
-      .sort({ 'metadata.lastUpdated': -1 })
+      .sort({ 
+        'metadata.totalSources': -1,  // Primary sort: most sources first
+        'metadata.lastUpdated': -1    // Secondary sort: newest first
+       })
       .toArray();
 
     // Transform MongoDB documents to Story type
