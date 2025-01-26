@@ -12,8 +12,7 @@ export class StoryManagerService {
     await this.storage.initialize();
   }
 
-
-async processNewArticles(articles: NewsAPIArticle[]): Promise<Story[]> {
+  async processNewArticles(articles: NewsAPIArticle[]): Promise<Story[]> {
     console.log('Starting to process articles...');
     const processedStories: Story[] = [];
     const processedUrls = new Set<string>();
@@ -41,8 +40,9 @@ async processNewArticles(articles: NewsAPIArticle[]): Promise<Story[]> {
           mainStory.sources,
           this.createSourceFromArticle(article)
         );
-  
-        const updatedStory = {
+
+        // Update the story with new source and analysis
+        const updatedStory = this.updateStoryAnalysis({
           ...mainStory,
           sources: updatedSources,
           metadata: {
@@ -51,7 +51,7 @@ async processNewArticles(articles: NewsAPIArticle[]): Promise<Story[]> {
             totalSources: updatedSources.length,
             latestDevelopment: article.description || undefined
           }
-        };
+        }, article);
   
         await this.storage.updateStory(mainStory.id, updatedStory);
         processedStories.push(updatedStory);
@@ -133,6 +133,38 @@ async processNewArticles(articles: NewsAPIArticle[]): Promise<Story[]> {
       return existingSources;
     }
     return [...existingSources, newSource];
+  }
+
+  private updateStoryAnalysis(story: Story, article: NewsAPIArticle): Story {
+    // Update notable quotes
+    const newQuote = this.extractQuote(article.content || article.description || '');
+    const quotes = [...story.analysis.notableQuotes];
+    if (newQuote) {
+      quotes.push({
+        text: newQuote,
+        source: article.source.name
+      });
+    }
+
+    // Update timeline
+    const timeline = [...story.analysis.timeline];
+    timeline.push({
+      timestamp: new Date(article.publishedAt),
+      event: article.description || '',
+      sources: [article.source.name]
+    });
+
+    // Sort timeline by timestamp in descending order
+    timeline.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    return {
+      ...story,
+      analysis: {
+        ...story.analysis,
+        notableQuotes: quotes,
+        timeline: timeline
+      }
+    };
   }
 
   private extractQuote(content: string): string | undefined {

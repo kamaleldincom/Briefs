@@ -98,69 +98,63 @@ export default function StoryDetail({ story }: StoryDetailProps) {
 
         {/* Notable Statements */}
         <Card>
-          <CardContent className="p-6">
-            <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
-            {story.analysis.notableQuotes?.map((quote, index) => (
-              <NotableQuote 
-                key={index}
-                text={quote.text}
-                source={quote.source}
-              />
-            )) || story.sources.map((source, index) => (
-              <NotableQuote 
-                key={index}
-                text={source.quote || 'No quote available'}
-                source={source.name}
-              />
-            ))}
-          </CardContent>
-        </Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
+                {/* Combine quotes from both analysis and sources */}
+                {[
+                  ...(story.analysis.notableQuotes || []),
+                  ...story.sources
+                    .filter(source => source.quote)
+                    .map(source => ({
+                      text: source.quote || '',
+                      source: source.name
+                    }))
+                ].map((quote, index) => (
+                  <NotableQuote 
+                    key={index}
+                    text={quote.text}
+                    source={quote.source}
+                  />
+                ))}
+              </CardContent>
+            </Card>
               
 
             {/* Timeline Tab */}
               <Card>
-                <CardContent className="p-6">
+              <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-4">Developments Timeline</h3>
-                  <div className="space-y-8">
-                    {/* Latest Update */}
-                    <div className="border-l-2 border-blue-500 pl-4 relative">
-                      <div className="absolute w-3 h-3 bg-blue-500 rounded-full -left-[7px]" />
+                <div className="space-y-8">
+                  {story.analysis.timeline.map((entry, index) => (
+                    <div 
+                      key={index} 
+                      className={`border-l-2 ${index === 0 ? 'border-blue-500' : 'border-gray-200'} pl-4 relative`}
+                    >
+                      <div 
+                        className={`absolute w-3 h-3 ${index === 0 ? 'bg-blue-500' : 'bg-gray-400'} rounded-full -left-[7px]`} 
+                      />
                       <div className="text-sm text-gray-500 mb-1">
-                        Latest Update • {formatDate(story.metadata.lastUpdated)}
-                      </div>
-                      <div className="font-medium mb-2">{story.sources[0].name}</div>
-                      <p className="text-gray-700 mb-2">{story.summary}</p>
-                      <a 
-                        href={story.sources[0].url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:underline text-sm"
-                      >
-                        Read full coverage →
-                      </a>
-                    </div>
-
-                    {/* Initial Coverage */}
-                    <div className="border-l-2 border-gray-200 pl-4 relative">
-                      <div className="absolute w-3 h-3 bg-gray-400 rounded-full -left-[7px]" />
-                      <div className="text-sm text-gray-500 mb-1">
-                        First Reported • {formatDate(story.metadata.firstPublished)}
+                        {index === 0 ? 'Latest Update' : formatDate(entry.timestamp)}
                       </div>
                       <div className="font-medium mb-2">
-                        {story.sources[story.sources.length - 1].name}
+                        {entry.sources.join(', ')}
                       </div>
-                      <a 
-                        href={story.sources[story.sources.length - 1].url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:underline text-sm"
-                      >
-                        View original coverage →
-                      </a>
+                      <p className="text-gray-700 mb-2">{entry.event}</p>
+                      {index === 0 && (
+                        <a 
+                          href={story.sources[0].url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:underline text-sm"
+                        >
+                          Read full coverage →
+                        </a>
+                      )}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Sources */}
               <Card>
