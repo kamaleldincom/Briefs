@@ -1,6 +1,7 @@
 // src/app/page.tsx
 import { Suspense } from "react";
 import NewsFeed from "@/components/feed/NewsFeed";
+import { ScrollRestorationProvider } from "@/context/ScrollRestorationContext";
 
 async function getStories() {
   try {
