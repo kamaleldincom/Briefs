@@ -1,7 +1,7 @@
 // src/app/page.tsx
 import { Suspense } from "react";
 import NewsFeed from "@/components/feed/NewsFeed";
-import { ScrollRestorationProvider } from "@/context/ScrollRestorationContext";
+import Header from "@/components/navigation/Header";
 
 async function getStories() {
   try {
@@ -37,16 +37,19 @@ export default async function Home() {
   const stories = await getStories();
 
   return (
-    <main className="min-h-screen">
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <h2 className="text-xl font-semibold">Loading stories...</h2>
+    <div className="flex flex-col min-h-screen">
+      <Header />
+      <main className="flex-1">
+        <Suspense fallback={
+          <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
+            <div className="text-center">
+              <h2 className="text-xl font-semibold">Loading stories...</h2>
+            </div>
           </div>
-        </div>
-      }>
-        <NewsFeed initialStories={stories} />
-      </Suspense>
-    </main>
+        }>
+          <NewsFeed initialStories={stories} />
+        </Suspense>
+      </main>
+    </div>
   );
 }
