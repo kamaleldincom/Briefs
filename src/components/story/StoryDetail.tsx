@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Clock, BarChart2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import ShareButton from "../shared/ShareButton";
 
 interface StoryDetailProps {
   story: Story;
@@ -36,15 +37,22 @@ export default function StoryDetail({ story }: StoryDetailProps) {
               </div>
             )}
           <h1 className="text-3xl font-bold mb-4">{story.title}</h1>
-          <div className="flex flex-wrap gap-4 items-center text-sm text-gray-500">
-            <div className="flex items-center gap-1">
-              <Clock className="w-4 h-4" />
-              {formatDate(story.metadata.firstPublished)}
+          <div className="flex justify-between items-center">
+            <div className="flex flex-wrap gap-4 items-center text-sm text-gray-500">
+              <div className="flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                {formatDate(story.metadata.firstPublished)}
+              </div>
+              <div className="flex items-center gap-1">
+                <BarChart2 className="w-4 h-4" />
+                {story.metadata.totalSources} sources
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <BarChart2 className="w-4 h-4" />
-              {story.metadata.totalSources} sources
-            </div>
+            <ShareButton 
+              storyId={story.id}
+              title={story.title}
+              summary={story.summary}
+            />
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { BarChart2, Clock } from "lucide-react";
 import { Story } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+import ShareButton from "../shared/ShareButton";
 
 interface StoryCardProps {
   story: Story;
@@ -64,6 +65,11 @@ export default function StoryCard({ story, isVisible, onClick }: StoryCardProps)
                 <span>{story.metadata.totalSources} sources</span>
               </div>
             </div>
+            <ShareButton 
+              storyId={story.id}
+              title={story.title}
+              summary={story.summary}
+            />
           </div>
         </CardContent>
       </Card>

@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ScrollRestorationProvider } from "@/context/ScrollRestorationContext";
 import Header from "@/components/navigation/Header";
+import { Toaster } from "@/components/ui/toaster";
 
 // Initialize Inter with the subsets and weights we need
 const inter = Inter({
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased`}>
         <ScrollRestorationProvider>
           {children}
+          <Toaster />
         </ScrollRestorationProvider>
       </body>
     </html>
