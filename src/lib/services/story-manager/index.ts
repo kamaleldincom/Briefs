@@ -96,7 +96,7 @@ export class StoryManagerService {
   private createStoryFromArticle(article: NewsAPIArticle): Story {
     const source = this.createSourceFromArticle(article);
     return {
-      id: encodeURIComponent(Buffer.from(article.url).toString('base64')),
+      id: this.createStoryId(article.title),
       title: article.title,
       summary: article.description || '',
       content: article.content || article.description || '',
@@ -125,6 +125,15 @@ export class StoryManagerService {
         }]
       }
     };
+  }
+
+  private createStoryId(title: string): string {
+    return title
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   private mergeNewSource(existingSources: Source[], newSource: Source): Source[] {

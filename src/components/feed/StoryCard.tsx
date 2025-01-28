@@ -13,9 +13,9 @@ interface StoryCardProps {
 
 export default function StoryCard({ story, isVisible, onClick }: StoryCardProps) {
   return (
-    <div className="h-screen w-full snap-start flex items-center justify-center p-4">
+    <div className="h-screen w-full snap-start flex items-start justify-center p-4">
       <Card 
-        className="w-full max-w-4xl h-[calc(100vh-2rem)] overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+        className="w-full max-w-4xl h-[calc(100vh-6rem)] overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
         onClick={onClick}
       >
         <CardContent className="p-6 h-full flex flex-col">
@@ -38,7 +38,7 @@ export default function StoryCard({ story, isVisible, onClick }: StoryCardProps)
           
           {/* Featured Image */}
           {story.metadata.imageUrl && (
-            <div className="relative w-full h-3/5 mb-4">
+            <div className="relative w-full h-1/2 mb-4">
               <img 
                 src={story.metadata.imageUrl} 
                 alt={story.title}

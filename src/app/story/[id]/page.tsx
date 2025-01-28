@@ -7,11 +7,12 @@ import { getStoryManager } from "@/lib/services";
 export default async function StoryPage({
   params,
 }: {
-  params: { id: string };
+  params: { id: string } | Promise<{ id: string }>;
 }) {
   try {
+    const resolvedParams = await Promise.resolve(params);
     const storyManager = await getStoryManager();
-    const story = await storyManager.getStoryById(params.id);
+    const story = await storyManager.getStoryById(resolvedParams.id);
 
     if (!story) {
       return (

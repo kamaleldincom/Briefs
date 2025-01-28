@@ -163,7 +163,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                 <h3 className="text-xl font-semibold mb-4">All sources</h3>
                   <div>
                     {story.sources.map((source, index) => (
-                      <div key={index} className="py-2 bg-muted rounded-lg">
+                      <div key={index} className="py-2 rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium">{source.name}</span>
                           <a 
