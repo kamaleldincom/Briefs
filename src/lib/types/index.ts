@@ -5,19 +5,8 @@ export interface Source {
   url: string;
   bias: number;
   sentiment: number;
-  quote?: string;    // For notable statements
-  perspective?: string; // For different viewpoints
-}
-
-export interface Story {
-  id: string;
-  title: string;
-  summary: string;
-  content: string;
-  imageUrl?: string;
-  sources: Source[];
-  metadata: StoryMetadata;
-  analysis: StoryAnalysis;
+  quote?: string;
+  perspective?: string;
 }
 
 export interface StoryMetadata {
@@ -25,9 +14,30 @@ export interface StoryMetadata {
   lastUpdated: Date;
   totalSources: number;
   categories: string[];
-  latestDevelopment?: string;  // For latest updates
-  imageUrl?: string;           // For media
+  latestDevelopment?: string;
+  imageUrl?: string;
   imageCaption?: string;
+}
+
+export interface Perspective {
+  sourceName: string;
+  viewpoint: string;
+  bias: string;
+  evidence?: string;
+}
+
+export interface NotableQuote {
+  text: string;
+  source: string;
+  context?: string;
+  significance?: string;
+}
+
+export interface TimelineEvent {
+  timestamp: Date;
+  event: string;
+  sources: string[];
+  significance?: string;
 }
 
 export interface StoryAnalysis {
@@ -35,13 +45,17 @@ export interface StoryAnalysis {
   keyPoints: string[];
   mainPerspectives: string[];
   controversialPoints: string[];
-  notableQuotes: {
-    text: string;
-    source: string;
-  }[];
-  timeline: {
-    timestamp: Date;
-    event: string;
-    sources: string[];
-  }[];
+  perspectives?: Perspective[];
+  notableQuotes: NotableQuote[];
+  timeline: TimelineEvent[];
+}
+
+export interface Story {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  sources: Source[];
+  metadata: StoryMetadata;
+  analysis: StoryAnalysis;
 }

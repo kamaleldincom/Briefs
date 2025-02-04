@@ -2,14 +2,36 @@
 import { NextResponse } from 'next/server';
 import { getStoryManager } from '@/lib/services';
 import { TRUSTED_SOURCES } from '@/lib/config/sources';
+import { Story } from '@/lib/types';
 
-export async function GET(request: Request) {
+// Cache to store the last fetch time and results
+let lastFetchTime = 0;
+let cachedStories: Story[] | null = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+export async function GET() {
   try {
-    const storyManager = await getStoryManager();
-    console.log('API Route: Story manager initialized');
+    const now = Date.now();
     
-    // Log raw NewsAPI response
-    console.log('API Route: Fetching from NewsAPI...');
+    // Return cached stories if they're still fresh
+    if (cachedStories && (now - lastFetchTime) < CACHE_DURATION) {
+      return NextResponse.json(cachedStories);
+    }
+
+    const storyManager = await getStoryManager();
+    
+    // First, try to get existing stories from the database
+    const existingStories = await storyManager.getStories();
+    
+    // If we have stories and it hasn't been long enough, return them
+    if (existingStories.length > 0 && (now - lastFetchTime) < CACHE_DURATION) {
+      cachedStories = existingStories;
+      return NextResponse.json(existingStories);
+    }
+
+    // Otherwise, fetch new stories
+    console.log('Fetching fresh stories from NewsAPI...');
+    
     const response = await fetch(
       `https://newsapi.org/v2/top-headlines?` + 
       new URLSearchParams({
@@ -25,25 +47,14 @@ export async function GET(request: Request) {
 
     const newsData = await response.json();
     
-    // Log API response details
-    console.log(`API Route: Received ${newsData.articles?.length} articles`);
-    console.log('API Route: Sample article titles:');
-    newsData.articles?.slice(0, 5).forEach((article: any) => {
-      console.log(`- ${article.title} (${article.source.name})`);
-    });
-
-    // Process articles
-    console.log('API Route: Processing articles...');
-    await storyManager.processNewArticles(newsData.articles);
-
-    // Get and log results
+    // Process in background
+    processArticlesInBackground(storyManager, newsData.articles);
+    
+    // Return what we have now
     const stories = await storyManager.getStories();
-    console.log(`API Route: Total stories in DB: ${stories.length}`);
-    console.log('API Route: Multi-source stories:');
-    stories
-      .filter(s => s.sources.length > 1)
-      .forEach(s => console.log(`- ${s.title} (${s.sources.length} sources)`));
-
+    cachedStories = stories;
+    lastFetchTime = now;
+    
     return NextResponse.json(stories);
   } catch (error) {
     console.error('API Route: Failed to fetch or process news:', error);
@@ -51,5 +62,13 @@ export async function GET(request: Request) {
       { error: 'Failed to fetch news' },
       { status: 500 }
     );
+  }
+}
+
+async function processArticlesInBackground(storyManager: any, articles: any[]) {
+  try {
+    await storyManager.processNewArticles(articles);
+  } catch (error) {
+    console.error('Background processing error:', error);
   }
 }
