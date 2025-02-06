@@ -1,72 +1,80 @@
 // src/lib/services/ai/prompts.ts
 export const ANALYSIS_PROMPTS = {
-  storySimilarity: `Analyze if these news stories are about the same event or closely related events.
+  storyAnalysis: `Analyze these news articles and provide a comprehensive analysis.
+Focus on creating a deep, nuanced understanding of the story.
 
-Consider:
-1. Core topic/event alignment
-2. Key participants and entities
-3. Timeline proximity
-4. Geographic location
-5. Cause-effect relationships
-6. Context and implications
+Required Analysis Components:
 
-Stories should be considered similar if they:
-- Cover the same primary event
-- Describe different aspects of the same ongoing story
-- Report on closely related developments of a single situation
-- Share key participants and core narrative elements
+1. Summary & Context:
+- Provide a clear, comprehensive summary
+- Include relevant historical or background context
+- Explain why this story is significant
 
-Provide a similarity score where:
-- 1.0: Identical stories
-- 0.8+: Same event, different perspectives
-- 0.6-0.8: Closely related developments
-- <0.6: Different stories
+2. Key Points Analysis:
+- Identify main developments and facts
+- Rate importance (high/medium/low)
+- Provide context for each point
+- Explain relationships between points
 
-Return a JSON object with:
-{
-  "isSimilar": boolean,
-  "confidenceScore": number (0-1),
-  "reasonings": [
-    "Specific reasons for similarity/difference"
-  ]
-}`,
+3. Perspective Analysis:
+- Analyze each source's stance
+- Identify bias patterns
+- Extract supporting evidence
+- Note conflicting viewpoints
+- Compare reporting approaches
 
-  storyAnalysis: `Analyze these related news articles and provide a comprehensive analysis.
+4. Implications:
+- Analyze short-term impacts
+- Project potential long-term effects
+- Identify stakeholder impacts
+- Connect to broader trends
+
+5. Quotes and Statements:
+- Extract significant quotes
+- Provide context for each quote
+- Explain quote significance
+- Verify attribution accuracy
+
+6. Timeline Construction:
+- Order events chronologically
+- Note casual relationships
+- Highlight pivotal moments
+- Connect to related developments
+
 Return a structured JSON object following this format:
 {
-  "summary": "Clear, concise summary of the overall story",
-  "keyPoints": [
-    "Specific key points..."
-  ],
-  "mainPerspectives": [
-    "Main viewpoints from different sources..."
-  ],
-  "controversialPoints": [
-    "Areas of disagreement or contention..."
-  ],
-  "perspectives": [
-    {
-      "sourceName": "Source name",
-      "viewpoint": "Detailed perspective",
-      "bias": "Observed bias",
-      "evidence": "Supporting evidence"
-    }
-  ],
-  "notableQuotes": [
-    {
-      "text": "Exact quote",
-      "source": "Who said it",
-      "context": "When and why",
-      "significance": "Why it matters"
-    }
-  ],
-  "timeline": [
-    {
-      "timestamp": "ISO date string",
-      "event": "What happened",
-      "significance": "Why this matters",
-      "sources": ["Source names"]
-    }
-  ]
+  "summary": "Comprehensive summary of the story",
+  "backgroundContext": "Historical and contextual information",
+  "keyPoints": [{
+    "point": "Key point description",
+    "importance": "high|medium|low",
+    "context": "Why this point matters"
+  }],
+  "perspectives": [{
+    "sourceName": "Source name",
+    "stance": "Source's position",
+    "summary": "Summary of their viewpoint",
+    "keyArguments": ["Main arguments made"],
+    "bias": "Observed bias in reporting",
+    "evidence": ["Supporting evidence provided"]
+  }],
+  "implications": {
+    "shortTerm": ["Immediate impacts"],
+    "longTerm": ["Potential future effects"]
+  },
+  "notableQuotes": [{
+    "text": "Quote text",
+    "source": "Who said it",
+    "context": "When and why",
+    "significance": "Why this quote matters"
+  }],
+  "timeline": [{
+    "timestamp": "ISO date",
+    "event": "What happened",
+    "significance": "Why it matters",
+    "sources": ["Source names"],
+    "impact": "Event's impact"
+  }],
+  "relatedTopics": ["Connected themes or stories"]
 }`
 } as const;

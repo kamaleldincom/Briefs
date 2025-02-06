@@ -1,5 +1,5 @@
 // src/components/story/StoryDetail.tsx
-import { Story } from "@/lib/types";
+import { Story, KeyPoint, Perspective } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Clock, BarChart2 } from "lucide-react";
@@ -10,21 +10,77 @@ interface StoryDetailProps {
   story: Story;
 }
 
+const KeyPointComponent = ({ point }: { point: KeyPoint }) => (
+  <div className="flex items-start gap-3 mb-4">
+    <Badge 
+      variant={point.importance === 'high' ? 'destructive' : 
+              point.importance === 'medium' ? 'secondary' : 'outline'}
+      className="mt-1 capitalize"
+    >
+      {point.importance}
+    </Badge>
+    <div>
+      <p className="text-gray-800 font-medium">{point.point}</p>
+      {point.context && (
+        <p className="text-gray-600 text-sm mt-1">{point.context}</p>
+      )}
+    </div>
+  </div>
+);
+
+const PerspectiveComponent = ({ perspective }: { perspective: Perspective }) => (
+  <div className="border-b last:border-0 pb-6 mb-6">
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      <Badge variant="outline">{perspective.sourceName}</Badge>
+      <Badge variant="secondary">{perspective.stance}</Badge>
+      {perspective.bias && (
+        <Badge variant="outline" className="text-gray-500">{perspective.bias}</Badge>
+      )}
+    </div>
+    <p className="text-gray-800 mb-3">{perspective.summary}</p>
+    {perspective.keyArguments?.length > 0 && (
+      <div className="mb-3">
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">Key Arguments:</h4>
+        <ul className="list-disc list-inside space-y-1">
+          {perspective.keyArguments.map((arg, idx) => (
+            <li key={idx} className="text-gray-600 text-sm">{arg}</li>
+          ))}
+        </ul>
+      </div>
+    )}
+    {perspective.evidence && perspective.evidence.length > 0 && (
+      <div>
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">Supporting Evidence:</h4>
+        <ul className="list-disc list-inside space-y-1">
+          {perspective.evidence.map((ev, idx) => (
+            <li key={idx} className="text-gray-600 text-sm">{ev}</li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </div>
+);
+
 const NotableQuote = ({ 
   text, 
   source, 
   context, 
-  significance 
+  significance,
+  timestamp
 }: { 
   text: string; 
   source: string; 
   context?: string;
   significance?: string;
+  timestamp?: Date;
 }) => (
   <blockquote className="border-l-4 border-gray-200 pl-4 my-4">
     <p className="italic text-gray-700">{text}</p>
     <footer className="text-sm mt-2">
       <div className="text-gray-500">— {source}</div>
+      {timestamp && (
+        <div className="text-gray-400 text-xs mt-1">{formatDate(timestamp)}</div>
+      )}
       {context && <div className="text-gray-400 mt-1">{context}</div>}
       {significance && <div className="text-blue-500 mt-1">{significance}</div>}
     </footer>
@@ -36,6 +92,8 @@ const TimelineEvent = ({
   event,
   sources,
   significance,
+  impact,
+  relatedQuotes,
   isLatest,
   url
 }: {
@@ -43,6 +101,8 @@ const TimelineEvent = ({
   event: string;
   sources: string[];
   significance?: string;
+  impact?: string;
+  relatedQuotes?: string[];
   isLatest?: boolean;
   url?: string;
 }) => (
@@ -58,6 +118,19 @@ const TimelineEvent = ({
       {sources.join(', ')}
     </div>
     <p className="text-gray-700 mb-2">{event}</p>
+    {impact && (
+      <p className="text-gray-600 text-sm mb-2">Impact: {impact}</p>
+    )}
+    {relatedQuotes && relatedQuotes.length > 0 && (
+      <div className="text-sm text-gray-500 mb-2">
+        <strong>Related Quotes:</strong>
+        <ul className="list-disc list-inside mt-1">
+          {relatedQuotes.map((quote, idx) => (
+            <li key={idx}>{quote}</li>
+          ))}
+        </ul>
+      </div>
+    )}
     {isLatest && url && (
       <a 
         href={url}
@@ -74,7 +147,7 @@ const TimelineEvent = ({
 export default function StoryDetail({ story }: StoryDetailProps) {
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with metadata */}
+      {/* Header section - keep as is */}
       <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container max-w-4xl mx-auto px-4 py-6">
           {story.metadata.imageUrl && (
@@ -112,7 +185,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
 
       <div className="container max-w-4xl mx-auto px-4">
         <div className="mt-6 space-y-6">
-          {/* Latest Development */}
+          {/* Latest Development - keep as is */}
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Latest Development</h3>
@@ -135,26 +208,13 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                 <div className="space-y-6">
                   <div className="prose max-w-none">
                     <p className="text-gray-700">{story.analysis.summary}</p>
+                    {story.analysis.backgroundContext && (
+                      <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                        <h4 className="font-medium text-gray-900 mb-2">Background Context</h4>
+                        <p className="text-gray-700">{story.analysis.backgroundContext}</p>
+                      </div>
+                    )}
                   </div>
-                  
-                  {story.analysis.keyPoints?.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-lg mb-3">Key Points</h4>
-                      <ul className="space-y-2">
-                        {story.analysis.keyPoints.map((point, index) => (
-                          <li 
-                            key={`key-point-${index}`} 
-                            className="flex items-start gap-2"
-                          >
-                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm">
-                              {index + 1}
-                            </span>
-                            <span className="text-gray-700">{point}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="text-gray-500 text-center py-8">
@@ -165,63 +225,88 @@ export default function StoryDetail({ story }: StoryDetailProps) {
             </CardContent>
           </Card>
 
+          {/* Key Points */}
+          {story.analysis.keyPoints?.length > 0 && (
+            <Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Key Points</h3>
+                <div className="space-y-4">
+                  {story.analysis.keyPoints.map((point, index) => (
+                    <KeyPointComponent key={index} point={point} />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Different Perspectives */}
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Different Perspectives</h3>
               <div className="space-y-4">
-              {story.analysis.perspectives ? (
-  story.analysis.perspectives.map((perspective, index) => (
-    <div 
-      key={`perspective-${index}-${perspective.sourceName}`} 
-      className="border-b last:border-0 pb-4"
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <Badge variant="outline">{perspective.sourceName}</Badge>
-        {perspective.bias && (
-          <Badge variant="secondary">{perspective.bias}</Badge>
-        )}
-      </div>
-      <p className="text-gray-700 mb-2">{perspective.viewpoint}</p>
-      {perspective.evidence && (
-        <p className="text-sm text-gray-500">{perspective.evidence}</p>
-      )}
-    </div>
-  ))
-) : (
-  // Fallback to mainPerspectives if enhanced perspectives aren't available
-  story.sources.map((source, index) => (
-    <div 
-      key={`source-${source.id}-${index}`} 
-      className="border-b last:border-0 pb-4"
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <Badge variant="outline">{source.name}</Badge>
-      </div>
-      <p className="text-gray-700">
-        {source.perspective || 'No perspective available'}
-      </p>
-    </div>
-  ))
-)}
+                {story.analysis.perspectives ? (
+                  story.analysis.perspectives.map((perspective, index) => (
+                    <PerspectiveComponent 
+                      key={`perspective-${index}-${perspective.sourceName}`} 
+                      perspective={perspective}
+                    />
+                  ))
+                ) : (
+                  story.sources.map((source, index) => (
+                    <div 
+                      key={`source-${source.id}-${index}`} 
+                      className="border-b last:border-0 pb-4"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline">{source.name}</Badge>
+                      </div>
+                      <p className="text-gray-700">
+                        {source.perspective || 'No perspective available'}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
+
+          {/* Implications */}
+          {story.analysis.implications && (
+            <Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Implications</h3>
+                <div className="space-y-6">
+                  {story.analysis.implications.shortTerm.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
+                      <ul className="list-disc list-inside space-y-2">
+                        {story.analysis.implications.shortTerm.map((impact, idx) => (
+                          <li key={idx} className="text-gray-700">{impact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {story.analysis.implications.longTerm.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
+                      <ul className="list-disc list-inside space-y-2">
+                        {story.analysis.implications.longTerm.map((impact, idx) => (
+                          <li key={idx} className="text-gray-700">{impact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Notable Statements */}
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
               <div className="space-y-4">
-                {[
-                  ...(story.analysis.notableQuotes || []),
-                  ...story.sources
-                    .filter(source => source.quote)
-                    .map(source => ({
-                      text: source.quote || '',
-                      source: source.name
-                    }))
-                ].map((quote, index) => (
+                {story.analysis.notableQuotes.map((quote, index) => (
                   <NotableQuote 
                     key={`quote-${index}-${quote.source}`}
                     {...quote}
@@ -247,6 +332,22 @@ export default function StoryDetail({ story }: StoryDetailProps) {
               </div>
             </CardContent>
           </Card>
+
+          {/* Related Topics */}
+          {story.analysis.relatedTopics && story.analysis.relatedTopics.length > 0 && (
+            <Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Related Topics</h3>
+                <div className="flex flex-wrap gap-2">
+                  {story.analysis.relatedTopics.map((topic, index) => (
+                    <Badge key={index} variant="secondary">
+                      {topic}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Sources */}
           <Card>
@@ -276,7 +377,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           </Card>
         </div>
 
-        <div className="h-16" /> {/* Bottom spacing */}
+        <div className="h-16" />
       </div>
     </div>
   );

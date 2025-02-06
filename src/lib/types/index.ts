@@ -19,11 +19,19 @@ export interface StoryMetadata {
   imageCaption?: string;
 }
 
+export interface KeyPoint {
+  point: string;
+  importance: 'high' | 'medium' | 'low';
+  context?: string;
+}
+
 export interface Perspective {
   sourceName: string;
-  viewpoint: string;
-  bias: string;
-  evidence?: string;
+  stance: string;  // e.g., "Neutral", "Supportive", "Critical"
+  summary: string;
+  keyArguments: string[];
+  bias?: string;
+  evidence?: string[];
 }
 
 export interface NotableQuote {
@@ -31,23 +39,32 @@ export interface NotableQuote {
   source: string;
   context?: string;
   significance?: string;
+  timestamp?: Date;
 }
 
 export interface TimelineEvent {
   timestamp: Date;
   event: string;
+  significance: string;
   sources: string[];
-  significance?: string;
+  relatedQuotes?: string[];
+  impact?: string;
 }
 
 export interface StoryAnalysis {
   summary: string;
-  keyPoints: string[];
+  backgroundContext: string;  // Added for historical/contextual information
+  keyPoints: KeyPoint[];
   mainPerspectives: string[];
   controversialPoints: string[];
-  perspectives?: Perspective[];
+  perspectives: Perspective[];
+  implications: {    // Added to analyze potential impacts
+    shortTerm: string[];
+    longTerm: string[];
+  };
   notableQuotes: NotableQuote[];
   timeline: TimelineEvent[];
+  relatedTopics?: string[];  // Added for connecting to broader themes
 }
 
 export interface Story {
