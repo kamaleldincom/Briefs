@@ -1,4 +1,5 @@
-// src/components/story/StoryDetail.tsx
+"use client";
+
 import { useState, useEffect } from "react";
 import { Story, KeyPoint, Perspective } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
@@ -308,67 +309,73 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           </Card>
 
           {/* Implications */}
-          {story.analysis.implications && (
+          {story.analysis.implications && story.analysis.implications.shortTerm && story.analysis.implications.longTerm && (
+            (story.analysis.implications.shortTerm.length > 0 || story.analysis.implications.longTerm.length > 0) && (
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-semibold mb-4">Implications</h3>
+                  <div className="space-y-6">
+                    {story.analysis.implications.shortTerm && story.analysis.implications.shortTerm.length > 0 && (
+                      <div>
+                        <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
+                        <ul className="list-disc list-inside space-y-2">
+                          {story.analysis.implications.shortTerm.map((impact, idx) => (
+                            <li key={idx} className="text-gray-700">{impact}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {story.analysis.implications.longTerm && story.analysis.implications.longTerm.length > 0 && (
+                      <div>
+                        <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
+                        <ul className="list-disc list-inside space-y-2">
+                          {story.analysis.implications.longTerm.map((impact, idx) => (
+                            <li key={idx} className="text-gray-700">{impact}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          )}
+
+          {/* Notable Statements */}
+          {story.analysis.notableQuotes && story.analysis.notableQuotes.length > 0 && (
             <Card>
               <CardContent className="p-6">
-                <h3 className="text-xl font-semibold mb-4">Implications</h3>
-                <div className="space-y-6">
-                  {story.analysis.implications.shortTerm.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
-                      <ul className="list-disc list-inside space-y-2">
-                        {story.analysis.implications.shortTerm.map((impact, idx) => (
-                          <li key={idx} className="text-gray-700">{impact}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {story.analysis.implications.longTerm.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
-                      <ul className="list-disc list-inside space-y-2">
-                        {story.analysis.implications.longTerm.map((impact, idx) => (
-                          <li key={idx} className="text-gray-700">{impact}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
+                <div className="space-y-4">
+                  {story.analysis.notableQuotes.map((quote, index) => (
+                    <NotableQuote 
+                      key={`quote-${index}-${quote.source}`}
+                      {...quote}
+                    />
+                  ))}
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Notable Statements */}
-          <Card>
-            <CardContent className="p-6">
-              <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
-              <div className="space-y-4">
-                {story.analysis.notableQuotes.map((quote, index) => (
-                  <NotableQuote 
-                    key={`quote-${index}-${quote.source}`}
-                    {...quote}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Timeline */}
-          <Card>
-            <CardContent className="p-6">
-              <h3 className="text-xl font-semibold mb-4">Developments Timeline</h3>
-              <div className="space-y-8">
-                {story.analysis.timeline.map((entry, index) => (
-                  <TimelineEvent
-                    key={`timeline-${entry.timestamp.toString()}-${index}`}
-                    {...entry}
-                    isLatest={index === 0}
-                    url={index === 0 ? story.sources[0].url : undefined}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {story.analysis.timeline && story.analysis.timeline.length > 0 && (
+            <Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Developments Timeline</h3>
+                <div className="space-y-8">
+                  {story.analysis.timeline.map((entry, index) => (
+                    <TimelineEvent
+                      key={`timeline-${entry.timestamp.toString()}-${index}`}
+                      {...entry}
+                      isLatest={index === 0}
+                      url={index === 0 ? story.sources[0].url : undefined}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Related Topics */}
           {story.analysis.relatedTopics && story.analysis.relatedTopics.length > 0 && (
