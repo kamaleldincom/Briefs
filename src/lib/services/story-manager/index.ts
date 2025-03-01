@@ -7,6 +7,8 @@ import { AIServiceImpl } from '../ai';
 import { CONFIG } from '@/lib/config';
 import { StoryRechecker } from './rechecker';
 import { calculateSimilarity } from '@/lib/utils';
+import { RawArticle, StoryArticleLink } from '@/lib/types/database';
+import { v4 as uuidv4 } from 'uuid';
 
 export class StoryManagerService {
   private aiService: AIServiceImpl;
@@ -15,106 +17,270 @@ export class StoryManagerService {
   constructor(private storage: NewsStorage) {
     this.aiService = new AIServiceImpl();
     this.rechecker = new StoryRechecker(this);
-    this.rechecker.startPeriodicCheck();
   }
 
   async initialize(): Promise<void> {
     await this.storage.initialize();
+    // Initialize rechecker after storage is ready
+    this.rechecker.startPeriodicCheck();
   }
 
   async processNewArticles(articles: NewsAPIArticle[]): Promise<void> {
     console.log('Processing new articles:', articles.length);
     
-    // Track processed stories to avoid duplicates within the same batch
-    const processedUrls = new Set<string>();
-
+    // Process each article
     for (const article of articles) {
       try {
-        // Skip if we've already processed this URL in this batch
-        if (processedUrls.has(article.url)) {
-          console.log('Skipping duplicate article:', article.title);
-          continue;
-        }
-
-        // Create initial story
-        const newStory = this.createStoryFromArticle(article);
+        // Step 1: Store raw article
+        const rawArticle = await this.storeRawArticle(article);
         
-        // Find existing stories in database
-        const existingStories = await this.storage.getStories();
-        
-        // Check if we already have this story
-        if (await this.isStoryExists(newStory)) {
-          console.log('Story already exists:', newStory.title);
-          continue;
-        }
-
-        // Use AI to find similar stories
-        const similarStories = await this.aiService.findSimilarStories(
-          newStory, 
-          existingStories
-        );
-
-        if (similarStories.length > 0) {
-          console.log(`Found ${similarStories.length} similar stories for: ${newStory.title}`);
-          
-          // Get the main story (oldest one with most sources)
-          const mainStory = this.findMainStory(similarStories);
-
-          // Update analysis with new content
-          const updatedAnalysis = await this.aiService.updateStoryAnalysis(
-            mainStory,
-            newStory
-          );
-
-          // Merge sources and update the story
-          const mergedSources = this.mergeSources(mainStory.sources, newStory.sources);
-          
-          await this.storage.updateStory(mainStory.id, {
-            sources: mergedSources,
-            analysis: updatedAnalysis,
-            metadata: {
-              ...mainStory.metadata,
-              totalSources: mergedSources.length,
-              lastUpdated: new Date(),
-              latestDevelopment: newStory.summary
-            }
-          });
-        } else {
-          console.log('Creating new story:', newStory.title);
-          
-          // If no similar stories found, analyze and store as new story
-          const analysis = await this.aiService.analyzeStoryGroup([newStory]);
-          newStory.analysis = analysis;
-          await this.storage.addStory(newStory);
-        }
-
-        // Mark this URL as processed
-        processedUrls.add(article.url);
+        // Step 2: Process the article
+        await this.processRawArticle(rawArticle);
       } catch (error) {
         console.error('Error processing article:', error);
+        // Continue with next article
         continue;
       }
     }
   }
 
-  async getStories(): Promise<Story[]> {
-    return this.storage.getStories();
+  async getStories(options: { page?: number; pageSize?: number } = {}): Promise<Story[]> {
+    return this.storage.getStories(options);
   }
 
   async getStoryById(id: string): Promise<Story | null> {
     return this.storage.getStoryById(id);
   }
 
-  private createStoryFromArticle(article: NewsAPIArticle): Story {
-    const source = {
-      id: this.createSourceId(article.source.id || article.source.name),
-      name: article.source.name,
-      url: article.url,
-      bias: SOURCE_DETAILS[article.source.id as keyof typeof SOURCE_DETAILS]?.bias || 0,
-      sentiment: 0,
-      quote: this.extractQuote(article.content || article.description || ''),
-      perspective: article.description
+  async getRawArticlesByStoryId(storyId: string): Promise<RawArticle[]> {
+    return this.storage.getRawArticlesByStoryId(storyId);
+  }
+
+  // Store raw article without processing
+  private async storeRawArticle(article: NewsAPIArticle): Promise<RawArticle> {
+    console.log('Storing raw article:', article.title);
+    
+    // Create raw article object
+    const rawArticle: RawArticle = {
+      id: uuidv4(),
+      sourceArticle: article,
+      processed: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
+    
+    // Store in database
+    return await this.storage.storeRawArticle(rawArticle);
+  }
+  
+  // Process a raw article to match with or create stories
+  private async processRawArticle(rawArticle: RawArticle): Promise<void> {
+    console.log('Processing raw article:', rawArticle.sourceArticle.title);
+    
+    // If article is already processed, skip
+    if (rawArticle.processed) {
+      console.log('Article already processed, skipping');
+      return;
+    }
+    
+    try {
+      // Create a new story from the article (we'll use this to find matches)
+      const potentialStory = this.createStoryFromArticle(rawArticle.sourceArticle);
+      
+      // Try to find related stories
+      const relatedStories = await this.storage.findRelatedStories(potentialStory);
+      
+      if (relatedStories.length > 0) {
+        // If we found related stories, link to the most relevant one
+        const mainStory = this.findMainStory(relatedStories);
+        console.log('Found related story:', mainStory.title);
+        
+        // Create link between article and story
+        await this.linkArticleToStory(rawArticle, mainStory, 'update');
+        
+        // Update the story with additional source information
+        await this.updateStoryWithNewSource(mainStory, rawArticle);
+      } else {
+        // If no related stories found, create a new one
+        console.log('No related stories found, creating new story');
+        await this.createNewStory(rawArticle);
+      }
+      
+      // Mark article as processed
+      await this.storage.updateRawArticle(rawArticle.id, { processed: true, updatedAt: new Date() });
+    } catch (error) {
+      console.error('Error processing raw article:', error);
+      throw error;
+    }
+  }
+  
+  // Link a raw article to an existing story
+  private async linkArticleToStory(
+    article: RawArticle, 
+    story: Story, 
+    contributionType: StoryArticleLink['contributionType'] = 'related'
+  ): Promise<void> {
+    console.log(`Linking article ${article.id} to story ${story.id}`);
+    
+    // Update the article's storyId
+    await this.storage.updateRawArticle(article.id, { 
+      storyId: story.id,
+      updatedAt: new Date()
+    });
+    
+    // Create a link record
+    const link: StoryArticleLink = {
+      id: uuidv4(),
+      storyId: story.id,
+      articleId: article.id,
+      addedAt: new Date(),
+      contributionType,
+      impact: this.determineArticleImpact(article, story)
+    };
+    
+    await this.storage.createStoryLink(link);
+  }
+  
+  // Determine how important this article is to the story
+  private determineArticleImpact(article: RawArticle, story: Story): StoryArticleLink['impact'] {
+    // If it's a new or developing story, it's likely major
+    if (story.sources.length <= 2) return 'major';
+    
+    // Check if article contains new significant information
+    const containsBreakingTerms = this.containsBreakingTerms(article.sourceArticle);
+    if (containsBreakingTerms) return 'major';
+    
+    // Check publish time - if it's much newer than the last update, it might be significant
+    const timeSinceLastUpdate = new Date().getTime() - new Date(story.metadata.lastUpdated).getTime();
+    if (timeSinceLastUpdate > 12 * 60 * 60 * 1000) return 'major'; // 12 hours
+    
+    // Default to minor impact
+    return 'minor';
+  }
+  
+  // Check if article contains terms indicating breaking news
+  private containsBreakingTerms(article: NewsAPIArticle): boolean {
+    const breakingTerms = ['breaking', 'urgent', 'just in', 'update', 'developing'];
+    const content = `${article.title} ${article.description || ''}`.toLowerCase();
+    
+    return breakingTerms.some(term => content.includes(term));
+  }
+  
+  // Create a new story from a raw article
+  private async createNewStory(rawArticle: RawArticle): Promise<Story> {
+    const article = rawArticle.sourceArticle;
+    console.log('Creating new story from article:', article.title);
+    
+    // Create initial story object
+    const newStory: Story = this.createStoryFromArticle(article);
+    
+    try {
+      // Analyze with AI if available
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const analysis = await this.aiService.analyzeStoryGroup([newStory]);
+          newStory.analysis = analysis;
+        } catch (error) {
+          console.error('AI analysis failed, using default analysis:', error);
+          // Keep default analysis
+        }
+      }
+      
+      // Store the story
+      const createdStory = await this.storage.addStory(newStory);
+      
+      // Link the article to the story
+      await this.linkArticleToStory(rawArticle, createdStory, 'original');
+      
+      return createdStory;
+    } catch (error) {
+      console.error('Error creating new story:', error);
+      throw error;
+    }
+  }
+  
+  // Update an existing story with information from a new article
+  private async updateStoryWithNewSource(story: Story, rawArticle: RawArticle): Promise<void> {
+    const article = rawArticle.sourceArticle;
+    console.log('Updating story with new source:', story.title);
+    
+    try {
+      // Create source object from the article
+      const newSource = this.createSourceFromArticle(article);
+      
+      // Only add if not already present
+      const sourceExists = story.sources.some(s => s.url === newSource.url);
+      if (sourceExists) {
+        console.log('Source already exists in story, skipping update');
+        return;
+      }
+      
+      // Merge sources, respecting the max limit
+      const mergedSources = [...story.sources, newSource]
+        .slice(0, CONFIG.maxSourcesPerStory);
+      
+      // Determine if we should update the analysis
+      const shouldUpdateAnalysis = this.shouldUpdateAnalysis(story, rawArticle);
+      
+      let updatedAnalysis = story.analysis;
+      if (shouldUpdateAnalysis && process.env.OPENAI_API_KEY) {
+        try {
+          // Create a temporary story with the new source for analysis
+          const tempStory: Story = {
+            ...story,
+            sources: [newSource]
+          };
+          
+          // Update analysis with the new content
+          updatedAnalysis = await this.aiService.updateStoryAnalysis(story, tempStory);
+        } catch (error) {
+          console.error('Error updating analysis:', error);
+          // Keep existing analysis on failure
+        }
+      }
+      
+      // Update the story
+      await this.storage.updateStory(story.id, {
+        sources: mergedSources,
+        analysis: updatedAnalysis,
+        metadata: {
+          ...story.metadata,
+          totalSources: mergedSources.length,
+          lastUpdated: new Date(),
+          latestDevelopment: article.description || undefined
+        }
+      });
+    } catch (error) {
+      console.error('Error updating story with new source:', error);
+      throw error;
+    }
+  }
+  
+  // Determine if we should update the analysis
+  private shouldUpdateAnalysis(story: Story, newArticle: RawArticle): boolean {
+    // If this is one of the first few sources, always update
+    if (!story.sources || story.sources.length < 3) return true;
+    
+    // If it's been a while since the last analysis, update
+    const timeSinceLastUpdate = new Date().getTime() - new Date(story.metadata.lastUpdated).getTime();
+    if (timeSinceLastUpdate > 6 * 60 * 60 * 1000) return true; // 6 hours
+    
+    // If the article contains breaking terms, update
+    if (this.containsBreakingTerms(newArticle.sourceArticle)) return true;
+    
+    // If we have added 3 or more sources since last analysis, update
+    const threshold = 3;
+    const sourcesCount = story.sources.length;
+    const articleCount = story.metadata.totalSources || 0;
+    
+    if (sourcesCount - articleCount >= threshold) return true;
+    
+    // Default: don't update
+    return false;
+  }
+  
+  private createStoryFromArticle(article: NewsAPIArticle): Story {
+    const source = this.createSourceFromArticle(article);
 
     return {
       id: this.createStoryId(article.title),
@@ -132,9 +298,23 @@ export class StoryManagerService {
       },
       analysis: {
         summary: article.description || '',
-        keyPoints: [article.description || ''].filter(Boolean),
+        backgroundContext: '',
+        keyPoints: [{
+          point: article.description || 'No description available',
+          importance: 'medium'
+        }],
         mainPerspectives: [article.description || ''].filter(Boolean),
         controversialPoints: [],
+        perspectives: [{
+          sourceName: source.name,
+          stance: 'Reporting',
+          summary: article.description || 'No description available',
+          keyArguments: []
+        }],
+        implications: {
+          shortTerm: [],
+          longTerm: []
+        },
         notableQuotes: source.quote ? [{
           text: source.quote,
           source: source.name,
@@ -145,8 +325,29 @@ export class StoryManagerService {
           event: article.description || '',
           sources: [article.source.name],
           significance: 'Initial report'
-        }]
+        }],
+        relatedTopics: []
       }
+    };
+  }
+
+  private createSourceFromArticle(article: NewsAPIArticle): { 
+    id: string; 
+    name: string; 
+    url: string; 
+    bias: number; 
+    sentiment: number; 
+    quote?: string; 
+    perspective?: string; 
+  } {
+    return {
+      id: this.createSourceId(article.source.id || article.source.name),
+      name: article.source.name,
+      url: article.url,
+      bias: SOURCE_DETAILS[article.source.id as keyof typeof SOURCE_DETAILS]?.bias || 0,
+      sentiment: 0,
+      quote: this.extractQuote(article.content || article.description || ''),
+      perspective: article.description
     };
   }
 
@@ -181,27 +382,6 @@ export class StoryManagerService {
     return content.slice(0, 100) + '...';
   }
 
-  private async isStoryExists(newStory: Story): Promise<boolean> {
-    const existingStories = await this.storage.getStories();
-    
-    // Check for exact URL matches first
-    const hasMatchingUrl = existingStories.some(story => 
-      story.sources.some(source => 
-        newStory.sources.some(newSource => newSource.url === source.url)
-      )
-    );
-
-    if (hasMatchingUrl) return true;
-
-    // Then check for title similarity
-    const titleSimilarity = existingStories.some(story => {
-      const similarity = calculateSimilarity(story.title, newStory.title);
-      return similarity > 0.8; // High threshold for considering it the same story
-    });
-
-    return titleSimilarity;
-  }
-
   private findMainStory(stories: Story[]): Story {
     return stories.reduce((main, current) => {
       // Prioritize stories with more sources
@@ -216,24 +396,6 @@ export class StoryManagerService {
     });
   }
 
-  private mergeSources(existing: Story['sources'], newSources: Story['sources']): Story['sources'] {
-    const uniqueSources = new Map<string, Story['sources'][0]>();
-    
-    // Add existing sources first
-    existing.forEach(source => {
-      uniqueSources.set(source.url, source);
-    });
-    
-    // Add new sources, up to the limit
-    newSources.forEach(source => {
-      if (uniqueSources.size < CONFIG.maxSourcesPerStory && !uniqueSources.has(source.url)) {
-        uniqueSources.set(source.url, source);
-      }
-    });
-    
-    return Array.from(uniqueSources.values());
-  }
-
   async refreshStoryAnalysis(storyId: string): Promise<void> {
     const story = await this.getStoryById(storyId);
     if (!story) {
@@ -241,6 +403,14 @@ export class StoryManagerService {
     }
 
     try {
+      // Get all raw articles for this story
+      const rawArticles = await this.getRawArticlesByStoryId(storyId);
+      
+      if (rawArticles.length === 0) {
+        console.log('No raw articles found for story, skipping analysis refresh');
+        return;
+      }
+      
       // Get fresh analysis for the story
       const freshAnalysis = await this.aiService.analyzeStoryGroup([story]);
       
@@ -274,4 +444,42 @@ export class StoryManagerService {
       }
     }
   }
+
+
+async getStoriesByKeywords(
+  keywords: string[],
+  options: { maxAge?: number; limit?: number } = {}
+): Promise<Story[]> {
+  try {
+    // Get all stories
+    const allStories = await this.storage.getStories();
+    
+    // Filter by keywords
+    const matchingStories = allStories.filter(story => {
+      const content = `${story.title} ${story.summary} ${story.content || ''}`.toLowerCase();
+      return keywords.some(keyword => content.includes(keyword.toLowerCase()));
+    });
+    
+    // Filter by age if specified
+    const filteredStories = options.maxAge
+      ? matchingStories.filter(story => {
+          const storyTime = new Date(story.metadata.firstPublished).getTime();
+          return Date.now() - storyTime < options.maxAge;
+        })
+      : matchingStories;
+    
+    // Sort by recency
+    const sortedStories = filteredStories.sort((a, b) => 
+      new Date(b.metadata.lastUpdated).getTime() - new Date(a.metadata.lastUpdated).getTime()
+    );
+    
+    // Limit if specified
+    return options.limit 
+      ? sortedStories.slice(0, options.limit) 
+      : sortedStories;
+  } catch (error) {
+    console.error('Error getting stories by keywords:', error);
+    return [];
+  }
+}
 }

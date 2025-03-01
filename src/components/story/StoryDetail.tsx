@@ -1,13 +1,25 @@
 // src/components/story/StoryDetail.tsx
+import { useState, useEffect } from "react";
 import { Story, KeyPoint, Perspective } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, BarChart2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Clock, BarChart2, FileText, ExternalLink } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import ShareButton from "../shared/ShareButton";
+import OriginalArticleModal from "./OriginalArticleModal";
 
 interface StoryDetailProps {
   story: Story;
+}
+
+interface StoryArticleLink {
+  id: string;
+  storyId: string;
+  articleId: string;
+  addedAt: Date;
+  contributionType: 'original' | 'update' | 'related';
+  impact: 'major' | 'minor' | 'context';
 }
 
 const KeyPointComponent = ({ point }: { point: KeyPoint }) => (
@@ -100,7 +112,7 @@ const TimelineEvent = ({
   timestamp: Date;
   event: string;
   sources: string[];
-  significance?: string;
+  significance: string;
   impact?: string;
   relatedQuotes?: string[];
   isLatest?: boolean;
@@ -145,9 +157,34 @@ const TimelineEvent = ({
 );
 
 export default function StoryDetail({ story }: StoryDetailProps) {
+  const [storyLinks, setStoryLinks] = useState<StoryArticleLink[]>([]);
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch story links on mount
+  useEffect(() => {
+    const fetchStoryLinks = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`/api/stories/${story.id}/links`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          setStoryLinks(data);
+        }
+      } catch (error) {
+        console.error('Error fetching story links:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStoryLinks();
+  }, [story.id]);
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header section - keep as is */}
+      {/* Header section */}
       <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container max-w-4xl mx-auto px-4 py-6">
           {story.metadata.imageUrl && (
@@ -185,7 +222,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
 
       <div className="container max-w-4xl mx-auto px-4">
         <div className="mt-6 space-y-6">
-          {/* Latest Development - keep as is */}
+          {/* Latest Development */}
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Latest Development</h3>
@@ -361,14 +398,49 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{source.name}</span>
-                      <a 
-                        href={source.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:underline text-sm"
-                      >
-                        Read original
-                      </a>
+                      <div className="flex space-x-2">
+                        {/* Read on our site button */}
+                        {storyLinks.length > 0 && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="flex items-center"
+                            onClick={() => {
+                              // Find the link for this source
+                              const link = storyLinks.find(link => {
+                                // Try to match by source URL or name
+                                return link.storyId === story.id;
+                              });
+                              
+                              if (link) {
+                                setSelectedArticleId(link.articleId);
+                              } else {
+                                console.log('No link found for this source');
+                              }
+                            }}
+                          >
+                            <FileText className="w-4 h-4 mr-1" />
+                            Read on our site
+                          </Button>
+                        )}
+                        
+                        {/* External link */}
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          asChild
+                        >
+                          <a 
+                            href={source.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center text-blue-500 hover:underline"
+                          >
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            Original source
+                          </a>
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -378,6 +450,14 @@ export default function StoryDetail({ story }: StoryDetailProps) {
         </div>
 
         <div className="h-16" />
+        
+        {/* Original Article Modal */}
+        {selectedArticleId && (
+          <OriginalArticleModal
+            articleId={selectedArticleId}
+            onClose={() => setSelectedArticleId(null)}
+          />
+        )}
       </div>
     </div>
   );
