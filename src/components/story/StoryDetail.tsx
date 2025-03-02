@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Story, KeyPoint, Perspective } from "@/lib/types";
+import { Story, KeyPoint, Perspective, Source } from "@/lib/types";
+import { StoryArticleLink } from "@/lib/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,24 @@ interface StoryDetailProps {
   story: Story;
 }
 
-interface StoryArticleLink {
+interface RawArticle {
   id: string;
-  storyId: string;
-  articleId: string;
-  addedAt: Date;
-  contributionType: 'original' | 'update' | 'related';
-  impact: 'major' | 'minor' | 'context';
+  sourceArticle: {
+    title: string;
+    description: string;
+    content: string;
+    url: string;
+    publishedAt: string;
+    urlToImage: string | null;
+    source: {
+      id: string | null;
+      name: string;
+    };
+  };
+  storyId?: string;
+  processed: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const KeyPointComponent = ({ point }: { point: KeyPoint }) => (
@@ -159,29 +171,81 @@ const TimelineEvent = ({
 
 export default function StoryDetail({ story }: StoryDetailProps) {
   const [storyLinks, setStoryLinks] = useState<StoryArticleLink[]>([]);
+  const [rawArticles, setRawArticles] = useState<RawArticle[]>([]);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch story links on mount
+  // Fetch story links and raw articles
   useEffect(() => {
-    const fetchStoryLinks = async () => {
+    const fetchStoryData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/stories/${story.id}/links`);
         
-        if (response.ok) {
-          const data = await response.json();
-          setStoryLinks(data);
+        // Fetch story links
+        const linksResponse = await fetch(`/api/stories/${story.id}/links`);
+        
+        if (linksResponse.ok) {
+          const linksData = await linksResponse.json();
+          setStoryLinks(linksData);
+          
+          // If we have links, fetch the corresponding raw articles
+          if (linksData.length > 0) {
+            const articleIds = linksData.map((link: StoryArticleLink) => link.articleId);
+            
+            // Fetch each article
+            const articlesData = await Promise.all(
+              articleIds.map(async (id: string) => {
+                const response = await fetch(`/api/articles/${id}`);
+                if (response.ok) {
+                  return await response.json();
+                }
+                return null;
+              })
+            );
+            
+            // Filter out any null results
+            setRawArticles(articlesData.filter(Boolean));
+          }
         }
       } catch (error) {
-        console.error('Error fetching story links:', error);
+        console.error('Error fetching story data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStoryLinks();
+    fetchStoryData();
   }, [story.id]);
+
+  // Helper function to find the most appropriate article ID for a source
+  const findArticleIdForSource = (source: Source): string | null => {
+    // First try to find a direct URL match
+    const directMatch = storyLinks.find(link => {
+      const article = rawArticles.find(a => a.id === link.articleId);
+      return article && article.sourceArticle.url === source.url;
+    });
+    
+    if (directMatch) {
+      return directMatch.articleId;
+    }
+    
+    // Then try to find by source name
+    const nameMatch = storyLinks.find(link => {
+      const article = rawArticles.find(a => a.id === link.articleId);
+      return article && article.sourceArticle.source.name === source.name;
+    });
+    
+    if (nameMatch) {
+      return nameMatch.articleId;
+    }
+    
+    // If we have any link for this story, return the first one as fallback
+    if (storyLinks.length > 0) {
+      return storyLinks[0].articleId;
+    }
+    
+    return null;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -270,7 +334,11 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                 <h3 className="text-xl font-semibold mb-4">Key Points</h3>
                 <div className="space-y-4">
                   {story.analysis.keyPoints.map((point, index) => (
-                    <KeyPointComponent key={index} point={point} />
+                    <KeyPointComponent key={index} point={
+                      typeof point === 'string' 
+                        ? { point, importance: 'medium' } 
+                        : point
+                    } />
                   ))}
                 </div>
               </CardContent>
@@ -282,7 +350,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Different Perspectives</h3>
               <div className="space-y-4">
-                {story.analysis.perspectives ? (
+                {story.analysis.perspectives && story.analysis.perspectives.length > 0 ? (
                   story.analysis.perspectives.map((perspective, index) => (
                     <PerspectiveComponent 
                       key={`perspective-${index}-${perspective.sourceName}`} 
@@ -309,13 +377,15 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           </Card>
 
           {/* Implications */}
-          {story.analysis.implications && story.analysis.implications.shortTerm && story.analysis.implications.longTerm && (
-            (story.analysis.implications.shortTerm.length > 0 || story.analysis.implications.longTerm.length > 0) && (
+          {story.analysis.implications && (
+            (story.analysis.implications.shortTerm?.length > 0 || 
+             story.analysis.implications.longTerm?.length > 0) && (
               <Card>
                 <CardContent className="p-6">
                   <h3 className="text-xl font-semibold mb-4">Implications</h3>
                   <div className="space-y-6">
-                    {story.analysis.implications.shortTerm && story.analysis.implications.shortTerm.length > 0 && (
+                    {story.analysis.implications.shortTerm && 
+                     story.analysis.implications.shortTerm.length > 0 && (
                       <div>
                         <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
                         <ul className="list-disc list-inside space-y-2">
@@ -325,7 +395,8 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                         </ul>
                       </div>
                     )}
-                    {story.analysis.implications.longTerm && story.analysis.implications.longTerm.length > 0 && (
+                    {story.analysis.implications.longTerm && 
+                     story.analysis.implications.longTerm.length > 0 && (
                       <div>
                         <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
                         <ul className="list-disc list-inside space-y-2">
@@ -369,7 +440,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                       key={`timeline-${entry.timestamp.toString()}-${index}`}
                       {...entry}
                       isLatest={index === 0}
-                      url={index === 0 ? story.sources[0].url : undefined}
+                      url={index === 0 ? story.sources[0]?.url : undefined}
                     />
                   ))}
                 </div>
@@ -397,61 +468,62 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">All sources</h3>
-              <div className="divide-y">
-                {story.sources.map((source, index) => (
-                  <div 
-                    key={`source-${source.id}-${index}`} 
-                    className="py-3 first:pt-0 last:pb-0"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{source.name}</span>
-                      <div className="flex space-x-2">
-                        {/* Read on our site button */}
-                        {storyLinks.length > 0 && (
+              {loading ? (
+                <div className="py-8 text-center">
+                  <p className="text-gray-500">Loading source details...</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {story.sources.map((source, index) => (
+                    <div 
+                      key={`source-${source.id}-${index}`} 
+                      className="py-3 first:pt-0 last:pb-0"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{source.name}</span>
+                        <div className="flex space-x-2">
+                          {/* Read on our site button */}
+                          {storyLinks.length > 0 && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex items-center"
+                              onClick={() => {
+                                const articleId = findArticleIdForSource(source);
+                                if (articleId) {
+                                  setSelectedArticleId(articleId);
+                                } else {
+                                  console.log('No article found for this source');
+                                }
+                              }}
+                            >
+                              <FileText className="w-4 h-4 mr-1" />
+                              Read on our site
+                            </Button>
+                          )}
+                          
+                          {/* External link */}
                           <Button 
-                            variant="outline" 
+                            variant="ghost" 
                             size="sm"
-                            className="flex items-center"
-                            onClick={() => {
-                              // Find the link for this source
-                              const link = storyLinks.find(link => {
-                                // Try to match by source URL or name
-                                return link.storyId === story.id;
-                              });
-                              
-                              if (link) {
-                                setSelectedArticleId(link.articleId);
-                              } else {
-                                console.log('No link found for this source');
-                              }
-                            }}
+                            asChild
                           >
-                            <FileText className="w-4 h-4 mr-1" />
-                            Read on our site
+                            <a 
+                              href={source.url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center text-blue-500 hover:underline"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-1" />
+                              Original source
+                            </a>
                           </Button>
-                        )}
-                        
-                        {/* External link */}
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          asChild
-                        >
-                          <a 
-                            href={source.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex items-center text-blue-500 hover:underline"
-                          >
-                            <ExternalLink className="w-4 h-4 mr-1" />
-                            Original source
-                          </a>
-                        </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -100,28 +100,31 @@ export async function GET(request: NextRequest) {
     }
     
     // Check if we should include any priority topics (like Sudan)
-    const priorityTopics = CONTENT_PREFERENCES?.priorityTopics || [];
-    if (priorityTopics.length > 0 && page === 1) {
-      // We'll try to incorporate priority topics in the first page
-      const storiesWithPriorities = await incorporatePriorityTopics(storyManager, stories, priorityTopics);
-      
-      // Update cache
-      responseCache = {
-        stories: storiesWithPriorities,
-        timestamp: now,
-        params: cacheParams
-      };
-      
-      // Return response
-      return NextResponse.json({
-        stories: sanitizeStories(storiesWithPriorities),
-        pagination: {
-          currentPage: page,
-          pageSize,
-          hasMore: stories.length >= pageSize // If we had enough stories originally, there are likely more
-        }
-      });
+const priorityTopics = CONTENT_PREFERENCES?.priorityTopics || [];
+if (priorityTopics.length > 0 && page === 1) {
+  // We'll try to incorporate priority topics in the first page
+  const storiesWithPriorities = await storyManager.incorporatePriorityTopics(
+    stories, 
+    priorityTopics
+  );
+  
+  // Update cache
+  responseCache = {
+    stories: storiesWithPriorities,
+    timestamp: now,
+    params: cacheParams
+  };
+  
+  // Return response
+  return NextResponse.json({
+    stories: sanitizeStories(storiesWithPriorities),
+    pagination: {
+      currentPage: page,
+      pageSize,
+      hasMore: stories.length >= pageSize // If we had enough stories originally, there are likely more
     }
+  });
+}
     
     // Update cache
     responseCache = {
@@ -154,7 +157,8 @@ export async function GET(request: NextRequest) {
 // Process articles in background
 async function processArticlesInBackground(storyManager: any, articles: any[]) {
   try {
-    await storyManager.processNewArticles(articles);
+    // This now uses the correct method name
+    await storyManager.processRawArticles(articles);
   } catch (error) {
     console.error('Background processing error:', error);
   }

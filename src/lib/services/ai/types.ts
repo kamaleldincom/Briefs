@@ -1,5 +1,5 @@
 // src/lib/services/ai/types.ts
-import { Story, StoryAnalysis, Perspective, NotableQuote, TimelineEvent } from '@/lib/types';
+import { Story, StoryAnalysis, Perspective, NotableQuote, TimelineEvent, KeyPoint } from '@/lib/types';
 
 export interface SimilarityAnalysis {
   isSimilar: boolean;
@@ -7,15 +7,21 @@ export interface SimilarityAnalysis {
   reasonings: string[];
 }
 
-// Make AIAnalysisResult match StoryAnalysis exactly
+// Make AIAnalysisResult match StoryAnalysis structure
 export interface AIAnalysisResult {
   summary: string;
-  keyPoints: string[];
+  backgroundContext: string;
+  keyPoints: KeyPoint[];
   mainPerspectives: string[];
   controversialPoints: string[];
-  perspectives?: Perspective[];
+  perspectives: Perspective[];
+  implications: {
+    shortTerm: string[];
+    longTerm: string[];
+  };
   notableQuotes: NotableQuote[];
   timeline: TimelineEvent[];
+  relatedTopics: string[];
 }
 
 export interface AIService {

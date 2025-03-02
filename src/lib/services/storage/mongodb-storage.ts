@@ -128,66 +128,114 @@ async getStories(options: { page?: number; pageSize?: number; } = {}): Promise<S
         }
     }
 
-    async findRelatedStories(story: Partial<Story>): Promise<Story[]> {
-        if (!this.storiesCollection || !this.rawArticlesCollection) {
-            throw new Error('Storage not initialized');
-        }
+   // Update the findRelatedStories method in src/lib/services/storage/mongodb-storage.ts
+
+async findRelatedStories(story: Partial<Story>): Promise<Story[]> {
+    if (!this.storiesCollection || !this.rawArticlesCollection) {
+        throw new Error('Storage not initialized');
+    }
+    
+    console.log('Looking for related stories to:', story.title);
+    
+    // Multi-tier matching approach
+    
+    // TIER 1: Check for stories that share the same source articles
+    if (story.sources && story.sources.length > 0) {
+        const sourceUrls = story.sources.map(source => source.url);
         
-        console.log('Looking for related stories to:', story.title);
-        
-        // First check for stories that share the same source articles
-        if (story.sources && story.sources.length > 0) {
-            const sourceUrls = story.sources.map(source => source.url);
-            
-            // Check if we have any raw articles with these URLs that are linked to stories
-            const linkedArticles = await this.rawArticlesCollection
-                .find({
-                    "sourceArticle.url": { $in: sourceUrls },
-                    storyId: { $exists: true, $ne: null }
-                })
-                .toArray();
-            
-            if (linkedArticles.length > 0) {
-                // Get the stories these articles are linked to
-                const storyIds = [...new Set(linkedArticles
-                    .filter(article => article.storyId)
-                    .map(article => article.storyId as string))];
-                
-                if (storyIds.length > 0) {
-                    const linkedStories = await this.storiesCollection
-                        .find({ id: { $in: storyIds } })
-                        .toArray();
-                    
-                    console.log(`Found ${linkedStories.length} stories by source URL match`);
-                    return linkedStories.map(this.transformToStory);
-                }
-            }
-        }
-        
-        // Then try content similarity using text search
-        const similarStories = await this.storiesCollection
+        // Check if we have any raw articles with these URLs that are linked to stories
+        const linkedArticles = await this.rawArticlesCollection
             .find({
-                $text: {
-                    $search: `${story.title} ${story.summary}`
-                }
+                "sourceArticle.url": { $in: sourceUrls },
+                storyId: { $exists: true, $ne: null }
             })
             .toArray();
         
-        console.log(`Found ${similarStories.length} potentially similar stories by text search`);
+        if (linkedArticles.length > 0) {
+            // Get the stories these articles are linked to
+            const storyIds = [...new Set(linkedArticles
+                .filter(article => article.storyId)
+                .map(article => article.storyId as string))];
+            
+            if (storyIds.length > 0) {
+                const linkedStories = await this.storiesCollection
+                    .find({ id: { $in: storyIds } })
+                    .toArray();
+                
+                console.log(`Found ${linkedStories.length} stories by source URL match (Tier 1)`);
+                return linkedStories.map(this.transformToStory);
+            }
+        }
+    }
+    
+    // TIER 2: Content-based similarity with text search + entity extraction
+    try {
+        // Get stories from the last 72 hours for more relevant matches
+        const cutoffDate = new Date();
+        cutoffDate.setHours(cutoffDate.getHours() - 72);
+        
+        const recentStories = await this.storiesCollection
+            .find({
+                "metadata.lastUpdated": { $gte: cutoffDate }
+            })
+            .sort({ "metadata.lastUpdated": -1 })
+            .limit(20) // Limit to most recent 20 stories for performance
+            .toArray();
+        
+        // Use text search as a first pass to filter candidates
+        const textQuery = `${story.title} ${story.summary}`;
+        const similarStories = await this.storiesCollection
+            .find({
+                $text: {
+                    $search: textQuery
+                }
+            })
+            .limit(10) // Limit to top 10 text search matches
+            .toArray();
+        
+        // Combine results from both queries, removing duplicates
+        const allCandidates = [...recentStories];
+        for (const similar of similarStories) {
+            if (!allCandidates.some(s => s.id === similar.id)) {
+                allCandidates.push(similar);
+            }
+        }
+        
+        console.log(`Found ${allCandidates.length} potential candidates for similarity checking`);
         
         // Filter by title similarity with a lower threshold
-        const relatedStories = similarStories.filter(existingStory => {
+        const relatedStories = allCandidates.filter(existingStory => {
             const titleSimilarity = calculateSimilarity(
                 existingStory.title,
                 story.title || ''
             );
-            console.log(`Similarity score with "${existingStory.title}": ${titleSimilarity}`);
-            return titleSimilarity > 0.2;
+            const summarySimilarity = story.summary && existingStory.summary ? 
+                calculateSimilarity(existingStory.summary, story.summary) : 0;
+                
+            console.log(`Similarity score with "${existingStory.title}": title=${titleSimilarity.toFixed(2)}, summary=${summarySimilarity.toFixed(2)}`);
+            
+            // Use a combined score with more weight on title
+            const combinedScore = (titleSimilarity * 0.7) + (summarySimilarity * 0.3);
+            return combinedScore > 0.25; // Lower threshold to potentially catch more matches
         });
         
-        console.log(`After similarity filtering: ${relatedStories.length} related stories`);
+        console.log(`After similarity filtering: ${relatedStories.length} related stories (Tier 2)`);
         return relatedStories.map(this.transformToStory);
+    } catch (error) {
+        console.error('Error in content-based similarity matching:', error);
+        
+        // Fallback to basic title matching if text search fails
+        const basicMatches = await this.storiesCollection
+            .find({
+                title: { $regex: new RegExp(story.title?.slice(0, 30) || '', 'i') }
+            })
+            .limit(5)
+            .toArray();
+            
+        console.log(`Fallback basic matching found ${basicMatches.length} stories`);
+        return basicMatches.map(this.transformToStory);
     }
+}
 
     // Raw article methods
     async getRawArticle(id: string): Promise<RawArticle | null> {

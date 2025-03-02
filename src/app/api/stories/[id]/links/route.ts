@@ -7,7 +7,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const storyId = params.id;
+    const resolvedParams = await Promise.resolve(params);
+    const storyId = resolvedParams.id;
     
     // Get storage directly to access story links
     const storage = new MongoDBStorage();

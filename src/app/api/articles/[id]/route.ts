@@ -8,7 +8,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const articleId = params.id;
+    const resolvedParams = await Promise.resolve(params);
+    const articleId = resolvedParams.id;
     
     // Get storage directly to access raw articles
     const storage = new MongoDBStorage();

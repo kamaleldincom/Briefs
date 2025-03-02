@@ -25,8 +25,23 @@ export class StoryManagerService {
     this.rechecker.startPeriodicCheck();
   }
 
+  /**
+   * Processes a batch of articles from NewsAPI
+   * This is the main entry point for handling new articles
+   * Called by external components like the rechecker and API routes
+   */
   async processNewArticles(articles: NewsAPIArticle[]): Promise<void> {
-    console.log('Processing new articles:', articles.length);
+    // This method is called from external code but was missing 
+    // We'll delegate to processRawArticles for consistency
+    return this.processRawArticles(articles);
+  }
+
+  /**
+   * Processes articles from NewsAPI
+   * Stores them as RawArticles and passes them to individual processing
+   */
+  async processRawArticles(articles: NewsAPIArticle[]): Promise<void> {
+    console.log('Processing articles:', articles.length);
     
     // Process each article
     for (const article of articles) {
@@ -44,36 +59,87 @@ export class StoryManagerService {
     }
   }
 
+  /**
+   * Gets stories with pagination
+   */
   async getStories(options: { page?: number; pageSize?: number } = {}): Promise<Story[]> {
     return this.storage.getStories(options);
   }
 
+  /**
+   * Gets a specific story by ID
+   */
   async getStoryById(id: string): Promise<Story | null> {
     return this.storage.getStoryById(id);
   }
 
+  /**
+   * Gets raw articles associated with a story
+   */
   async getRawArticlesByStoryId(storyId: string): Promise<RawArticle[]> {
     return this.storage.getRawArticlesByStoryId(storyId);
   }
 
-  // Store raw article without processing
-  private async storeRawArticle(article: NewsAPIArticle): Promise<RawArticle> {
-    console.log('Storing raw article:', article.title);
+  /**
+   * Enhanced story matching using multi-tier approach:
+   * 1. Exact URL matching (fastest)
+   * 2. Conventional content similarity
+   * 3. AI-based conceptual matching (when available)
+   */
+  async findRelatedStoriesEnhanced(rawArticle: RawArticle): Promise<Story[]> {
+    console.log('Enhanced story matching for:', rawArticle.sourceArticle.title);
     
-    // Create raw article object
-    const rawArticle: RawArticle = {
-      id: uuidv4(),
-      sourceArticle: article,
-      processed: false,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+    // Create potential story object from the article
+    const potentialStory = this.createStoryFromArticle(rawArticle.sourceArticle);
     
-    // Store in database
-    return await this.storage.storeRawArticle(rawArticle);
+    // TIER 1: Try exact URL matching first (fastest)
+    const existingArticle = await this.storage.findArticleByUrl(rawArticle.sourceArticle.url);
+    if (existingArticle && existingArticle.storyId) {
+      console.log('Found exact URL match with existing article');
+      const story = await this.storage.getStoryById(existingArticle.storyId);
+      return story ? [story] : [];
+    }
+    
+    // TIER 2: Try conventional content similarity matching
+    const conventionalMatches = await this.storage.findRelatedStories(potentialStory);
+    if (conventionalMatches.length > 0) {
+      console.log('Found matches using conventional similarity');
+      return conventionalMatches;
+    }
+    
+    // TIER 3: Use AI for conceptual matching (if available and content is substantial)
+    if (process.env.OPENAI_API_KEY && this.hasSubstantialContent(rawArticle)) {
+      try {
+        console.log('Attempting AI-based conceptual matching');
+        // Get recent stories to check against
+        const recentStories = await this.storage.getStories({ 
+          page: 1,
+          pageSize: 20 // Limit to 20 recent stories for performance
+        });
+        
+        // Create a temporary story object from the article
+        const tempStory: Story = potentialStory as Story;
+        
+        // Use AI service to find conceptually similar stories
+        const aiMatches = await this.aiService.findSimilarStories(tempStory, recentStories);
+        
+        if (aiMatches.length > 0) {
+          console.log('Found matches using AI conceptual similarity');
+          return aiMatches;
+        }
+      } catch (error) {
+        console.error('Error in AI conceptual matching:', error);
+        // Continue to fallback methods
+      }
+    }
+    
+    // No matches found
+    return [];
   }
   
-  // Process a raw article to match with or create stories
+  /**
+   * Process a single raw article to match with existing stories or create a new one
+   */
   private async processRawArticle(rawArticle: RawArticle): Promise<void> {
     console.log('Processing raw article:', rawArticle.sourceArticle.title);
     
@@ -84,11 +150,8 @@ export class StoryManagerService {
     }
     
     try {
-      // Create a new story from the article (we'll use this to find matches)
-      const potentialStory = this.createStoryFromArticle(rawArticle.sourceArticle);
-      
-      // Try to find related stories
-      const relatedStories = await this.storage.findRelatedStories(potentialStory);
+      // Use enhanced matching algorithm
+      const relatedStories = await this.findRelatedStoriesEnhanced(rawArticle);
       
       if (relatedStories.length > 0) {
         // If we found related stories, link to the most relevant one
@@ -113,8 +176,29 @@ export class StoryManagerService {
       throw error;
     }
   }
-  
-  // Link a raw article to an existing story
+
+  /**
+   * Store a raw article in the database
+   */
+  private async storeRawArticle(article: NewsAPIArticle): Promise<RawArticle> {
+    console.log('Storing raw article:', article.title);
+    
+    // Create raw article object
+    const rawArticle: RawArticle = {
+      id: uuidv4(),
+      sourceArticle: article,
+      processed: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    // Store in database
+    return await this.storage.storeRawArticle(rawArticle);
+  }
+
+  /**
+   * Link an article to a story in the database
+   */
   private async linkArticleToStory(
     article: RawArticle, 
     story: Story, 
@@ -141,7 +225,9 @@ export class StoryManagerService {
     await this.storage.createStoryLink(link);
   }
   
-  // Determine how important this article is to the story
+  /**
+   * Determine the impact level of an article on a story
+   */
   private determineArticleImpact(article: RawArticle, story: Story): StoryArticleLink['impact'] {
     // If it's a new or developing story, it's likely major
     if (story.sources.length <= 2) return 'major';
@@ -158,7 +244,9 @@ export class StoryManagerService {
     return 'minor';
   }
   
-  // Check if article contains terms indicating breaking news
+  /**
+   * Check if an article contains breaking news terms
+   */
   private containsBreakingTerms(article: NewsAPIArticle): boolean {
     const breakingTerms = ['breaking', 'urgent', 'just in', 'update', 'developing'];
     const content = `${article.title} ${article.description || ''}`.toLowerCase();
@@ -166,7 +254,9 @@ export class StoryManagerService {
     return breakingTerms.some(term => content.includes(term));
   }
   
-  // Create a new story from a raw article
+  /**
+   * Create a new story from a raw article
+   */
   private async createNewStory(rawArticle: RawArticle): Promise<Story> {
     const article = rawArticle.sourceArticle;
     console.log('Creating new story from article:', article.title);
@@ -199,7 +289,9 @@ export class StoryManagerService {
     }
   }
   
-  // Update an existing story with information from a new article
+  /**
+   * Update an existing story with information from a new article
+   */
   private async updateStoryWithNewSource(story: Story, rawArticle: RawArticle): Promise<void> {
     const article = rawArticle.sourceArticle;
     console.log('Updating story with new source:', story.title);
@@ -256,7 +348,9 @@ export class StoryManagerService {
     }
   }
   
-  // Determine if we should update the analysis
+  /**
+   * Determine if we should update the analysis for a story
+   */
   private shouldUpdateAnalysis(story: Story, newArticle: RawArticle): boolean {
     // If this is one of the first few sources, always update
     if (!story.sources || story.sources.length < 3) return true;
@@ -279,6 +373,9 @@ export class StoryManagerService {
     return false;
   }
   
+  /**
+   * Create a story object from a NewsAPI article
+   */
   private createStoryFromArticle(article: NewsAPIArticle): Story {
     const source = this.createSourceFromArticle(article);
 
@@ -331,6 +428,9 @@ export class StoryManagerService {
     };
   }
 
+  /**
+   * Create a source object from a NewsAPI article
+   */
   private createSourceFromArticle(article: NewsAPIArticle): { 
     id: string; 
     name: string; 
@@ -351,6 +451,9 @@ export class StoryManagerService {
     };
   }
 
+  /**
+   * Create a story ID from a title
+   */
   private createStoryId(title: string): string {
     const timestamp = Date.now();
     const sanitizedTitle = title
@@ -364,6 +467,9 @@ export class StoryManagerService {
     return `${sanitizedTitle}-${timestamp}`;
   }
 
+  /**
+   * Create a source ID from a name
+   */
   private createSourceId(name: string): string {
     return name
       .toLowerCase()
@@ -373,6 +479,9 @@ export class StoryManagerService {
       .replace(/^-+|-+$/g, '');
   }
 
+  /**
+   * Extract a quote from article content
+   */
   private extractQuote(content: string): string | undefined {
     const matches = content.match(/"([^"]*?)"/g);
     if (matches && matches[0].length > 20) { // Only use quotes that are substantial
@@ -382,6 +491,9 @@ export class StoryManagerService {
     return content.slice(0, 100) + '...';
   }
 
+  /**
+   * Find the main story from a list of related stories
+   */
   private findMainStory(stories: Story[]): Story {
     return stories.reduce((main, current) => {
       // Prioritize stories with more sources
@@ -396,6 +508,22 @@ export class StoryManagerService {
     });
   }
 
+  /**
+   * Check if an article has enough content for AI analysis
+   */
+  private hasSubstantialContent(article: RawArticle): boolean {
+    const { title, description, content } = article.sourceArticle;
+    const titleLength = title?.length || 0;
+    const descriptionLength = description?.length || 0;
+    const contentLength = content?.length || 0;
+    
+    // At least 100 characters combined
+    return (titleLength + descriptionLength + contentLength) > 100;
+  }
+
+  /**
+   * Refresh the AI analysis for a story
+   */
   async refreshStoryAnalysis(storyId: string): Promise<void> {
     const story = await this.getStoryById(storyId);
     if (!story) {
@@ -428,6 +556,9 @@ export class StoryManagerService {
     }
   }
 
+  /**
+   * Clean up old stories
+   */
   async cleanupOldStories(): Promise<void> {
     const stories = await this.storage.getStories();
     const now = new Date();
@@ -445,41 +576,114 @@ export class StoryManagerService {
     }
   }
 
-
-async getStoriesByKeywords(
-  keywords: string[],
-  options: { maxAge?: number; limit?: number } = {}
-): Promise<Story[]> {
-  try {
-    // Get all stories
-    const allStories = await this.storage.getStories();
-    
-    // Filter by keywords
-    const matchingStories = allStories.filter(story => {
-      const content = `${story.title} ${story.summary} ${story.content || ''}`.toLowerCase();
-      return keywords.some(keyword => content.includes(keyword.toLowerCase()));
-    });
-    
-    // Filter by age if specified
-    const filteredStories = options.maxAge
-      ? matchingStories.filter(story => {
-          const storyTime = new Date(story.metadata.firstPublished).getTime();
-          return Date.now() - storyTime < options.maxAge;
-        })
-      : matchingStories;
-    
-    // Sort by recency
-    const sortedStories = filteredStories.sort((a, b) => 
-      new Date(b.metadata.lastUpdated).getTime() - new Date(a.metadata.lastUpdated).getTime()
-    );
-    
-    // Limit if specified
-    return options.limit 
-      ? sortedStories.slice(0, options.limit) 
-      : sortedStories;
-  } catch (error) {
-    console.error('Error getting stories by keywords:', error);
-    return [];
+  /**
+   * Gets stories that match specific priority keywords
+   * Used to ensure important topics like Sudan always appear in the feed
+   */
+  async getStoriesByKeywords(
+    keywords: string[],
+    options: { maxAge?: number; limit?: number } = {}
+  ): Promise<Story[]> {
+    try {
+      // Get all stories
+      const allStories = await this.storage.getStories();
+      
+      // Filter by keywords
+      const matchingStories = allStories.filter(story => {
+        const content = `${story.title} ${story.summary} ${story.content || ''}`.toLowerCase();
+        return keywords.some(keyword => content.includes(keyword.toLowerCase()));
+      });
+      
+      // Filter by age if specified
+      const filteredStories = options.maxAge
+        ? matchingStories.filter(story => {
+            const storyTime = new Date(story.metadata.firstPublished).getTime();
+            return Date.now() - storyTime < options.maxAge;
+          })
+        : matchingStories;
+      
+      // Sort by recency
+      const sortedStories = filteredStories.sort((a, b) => 
+        new Date(b.metadata.lastUpdated).getTime() - new Date(a.metadata.lastUpdated).getTime()
+      );
+      
+      // Limit if specified
+      return options.limit 
+        ? sortedStories.slice(0, options.limit) 
+        : sortedStories;
+    } catch (error) {
+      console.error('Error getting stories by keywords:', error);
+      return [];
+    }
   }
-}
+
+  /**
+   * Checks if a story contains any of the specified keywords
+   */
+  private storyContainsKeywords(story: Story, keywords: string[]): boolean {
+    const content = `${story.title} ${story.summary} ${story.content || ''}`.toLowerCase();
+    return keywords.some(keyword => content.includes(keyword.toLowerCase()));
+  }
+
+  /**
+   * Adds priority topics to a story feed
+   * Returns a modified list of stories with priority topics included
+   */
+  async incorporatePriorityTopics(
+    regularStories: Story[], 
+    priorityTopics: { name: string; keywords: string[]; minCount: number; maxAge: number }[]
+  ): Promise<Story[]> {
+    try {
+      const result = [...regularStories];
+      
+      // For each priority topic
+      for (const topic of priorityTopics) {
+        // Skip if minimum count already met
+        const existingCount = regularStories.filter(story => 
+          this.storyContainsKeywords(story, topic.keywords)
+        ).length;
+        
+        if (existingCount >= topic.minCount) {
+          console.log(`Already have ${existingCount} stories about ${topic.name}`);
+          continue;
+        }
+        
+        // Search for stories about this topic
+        const topicStories = await this.getStoriesByKeywords(
+          topic.keywords, 
+          { maxAge: topic.maxAge }
+        );
+        
+        // Add priority stories not already in the regular set
+        if (topicStories && topicStories.length > 0) {
+          const storiesToAdd = topicStories.filter(topicStory => 
+            !regularStories.some(regStory => regStory.id === topicStory.id)
+          );
+          
+          // Add to result, replacing latest regular stories to maintain pageSize
+          if (storiesToAdd.length > 0) {
+            const neededCount = Math.min(
+              topic.minCount - existingCount,
+              storiesToAdd.length
+            );
+            
+            if (neededCount > 0) {
+              console.log(`Adding ${neededCount} stories about ${topic.name}`);
+              
+              // Remove stories from the end to make room
+              result.splice(result.length - neededCount, neededCount);
+              
+              // Add priority stories
+              result.push(...storiesToAdd.slice(0, neededCount));
+            }
+          }
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error incorporating priority topics:', error);
+      return regularStories; // Return original stories if anything goes wrong
+    }
+  }
 }

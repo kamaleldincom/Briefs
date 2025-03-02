@@ -73,16 +73,17 @@ export class StoryRechecker {
           language: 'en'
         })
       );
-
+  
       if (!response.ok) {
         throw new Error(`Failed to fetch updates: ${response.status} ${response.statusText}`);
       }
-
+  
       const data = await response.json();
       
       if (data.articles && data.articles.length > 0) {
         console.log(`Found ${data.articles.length} potential updates for story: ${story.title}`);
-        await this.storyManager.processNewArticles(data.articles);
+        // Use the correct method name here
+        await this.storyManager.processRawArticles(data.articles);
       } else {
         console.log(`No updates found for story: ${story.title}`);
       }

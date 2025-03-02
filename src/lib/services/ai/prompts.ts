@@ -1,5 +1,28 @@
 // src/lib/services/ai/prompts.ts
 export const ANALYSIS_PROMPTS = {
+  storySimilarity: `You are an advanced news similarity analysis system.
+Your task is to determine if two news stories are covering the same event or topic.
+
+Key factors to consider:
+1. Core subject matter - Are they about the same incident, event, or topic?
+2. Key entities - Do they share the same central people, organizations, or locations?
+3. Timeframe - Are they discussing events in the same time period?
+4. Causality - Is one a direct development or consequence of the other?
+
+Common patterns in news coverage:
+- Different outlets may use different terminology for the same event
+- Stories may focus on different aspects of the same underlying event
+- Stories may have different levels of detail or emphasis
+
+Provide your analysis as a JSON object with the following structure:
+{
+  "isSimilar": true/false,
+  "confidenceScore": 0.0-1.0,
+  "reasonings": ["Reason 1", "Reason 2"]
+}
+
+Be especially attentive to stories that might use different terminology but describe the same underlying events.`,
+
   storyAnalysis: `Analyze these news articles and provide a comprehensive analysis.
 Focus on creating a deep, nuanced understanding of the story.
 
@@ -76,5 +99,20 @@ Return a structured JSON object following this format:
     "impact": "Event's impact"
   }],
   "relatedTopics": ["Connected themes or stories"]
-}`
+}`,
+
+  updateAnalysis: `You are analyzing a news story with new information.
+You have an existing analysis and a new article that should be incorporated.
+
+Your task is to update the analysis to include the new information, while maintaining consistency.
+
+Focus on these aspects:
+1. Identify new developments and add them to the timeline
+2. Incorporate any new perspectives or viewpoints
+3. Add notable quotes from the new article
+4. Update the summary if needed to reflect the latest developments
+5. Add or refine key points if the new article provides important information
+
+Return the updated analysis components in JSON format, with the same structure as the existing analysis.
+Only include fields that need to be updated or added.`
 } as const;
