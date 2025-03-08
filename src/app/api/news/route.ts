@@ -27,23 +27,23 @@ export async function GET(request: NextRequest) {
     const now = Date.now();
     
     // Return cached response if available and not stale
-    if (
-      !refresh && 
-      responseCache &&
-      responseCache.params === cacheParams &&
-      (now - responseCache.timestamp) < MS.CACHE_DURATION
-    ) {
-      console.log('Returning cached stories response');
-      return NextResponse.json({
-        stories: sanitizeStories(responseCache.stories),
-        pagination: {
-          currentPage: page,
-          pageSize,
-          hasMore: responseCache.stories.length === pageSize
-        },
-        apiStatus: { success: true, message: "Using cached data" }
-      });
-    }
+    // if (
+    //   !refresh && 
+    //   responseCache &&
+    //   responseCache.params === cacheParams &&
+    //   (now - responseCache.timestamp) < MS.CACHE_DURATION
+    // ) {
+    //   console.log('Returning cached stories response');
+    //   return NextResponse.json({
+    //     stories: sanitizeStories(responseCache.stories),
+    //     pagination: {
+    //       currentPage: page,
+    //       pageSize,
+    //       hasMore: responseCache.stories.length === pageSize
+    //     },
+    //     apiStatus: { success: true, message: "Using cached data" }
+    //   });
+    // }
 
     // Get story manager
     const storyManager = await getStoryManager();
@@ -55,12 +55,28 @@ export async function GET(request: NextRequest) {
     let apiStatus = { success: true, message: null };
     
     // Check if database-only mode is enabled
+    // Check if database-only mode is enabled
     if (isDatabaseOnlyMode()) {
       logApiInfo('Database-only mode active. Skipping NewsAPI fetch.');
-      apiStatus = { 
-        success: false, 
-        message: 'Database-only mode is enabled. Using existing database content.'
-      };
+      
+      // Get stories directly from database without attempting API calls
+      const storyManager = await getStoryManager();
+      const stories = await storyManager.getStories({ page, pageSize });
+
+      // Return a special apiStatus for database-only mode
+      return NextResponse.json({
+        stories: sanitizeStories(stories),
+        pagination: {
+          currentPage: page,
+          pageSize,
+          hasMore: stories.length === pageSize
+        },
+        apiStatus: { 
+          success: true, // Mark as successful to avoid error toasts
+          message: 'Database-only mode is enabled',
+          mode: 'database-only'
+        }
+      });
     }
     else if (refresh || stories.length < pageSize) {
       try {

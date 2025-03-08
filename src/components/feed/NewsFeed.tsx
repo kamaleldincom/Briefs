@@ -10,12 +10,14 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { PullToRefreshIndicator } from "@/components/shared/PullToRefreshIndicator";
+import { isDatabaseOnlyMode } from '@/lib/config/development';
 
 interface NewsFeedProps {
   initialStories: Story[];
+  onApiStatusChange?: (status: { success: boolean; message?: string | null }) => void;
 }
 
-export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
+export default function NewsFeed({ initialStories = [], onApiStatusChange }: NewsFeedProps) {
   // Deduplicate initial stories
   const dedupedInitialStories = React.useMemo(() => {
     const seen = new Set<string>();
@@ -44,6 +46,16 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
   // Define the refreshFeed function before using it in usePullToRefresh
   const refreshFeed = async () => {
     if (isRefreshing) return;
+    
+    // If in database-only mode, just show a gentle message
+    if (isDatabaseOnlyMode()) {
+      toast({
+        title: "Database-Only Mode",
+        description: "New stories can't be fetched as the app is in database-only mode.",
+        duration: 3000,
+      });
+      return;
+    }
     
     setIsRefreshing(true);
     
@@ -84,37 +96,43 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
             });
           }
           
-          // Show different toast based on API status
-          if (!apiStatus.success) {
-            toast({
-              title: "Using existing stories",
-              description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
-              duration: 5000,
-            });
-          } else {
-            toast({
-              title: "Feed refreshed",
-              description: "New stories have been loaded.",
-              duration: 3000,
-            });
+          // Only show toast if not in database-only mode
+          if (apiStatus.mode !== 'database-only') {
+            // Show different toast based on API status
+            if (!apiStatus.success) {
+              toast({
+                title: "Using existing stories",
+                description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
+                duration: 5000,
+              });
+            } else {
+              toast({
+                title: "Feed refreshed",
+                description: "New stories have been loaded.",
+                duration: 3000,
+              });
+            }
           }
         } else {
-          // Show different toast based on API status
-          if (!apiStatus.success) {
-            toast({
-              title: "Rate limit exceeded",
-              description: "NewsAPI rate limit exceeded. Your feed shows the latest available stories.",
-              duration: 5000,
-            });
-          } else {
-            toast({
-              title: "No new stories",
-              description: "Your feed is already up to date.",
-              duration: 3000,
-            });
+          // Only show toast if not in database-only mode
+          if (apiStatus.mode !== 'database-only') {
+            // Show different toast based on API status
+            if (!apiStatus.success) {
+              toast({
+                title: "Rate limit exceeded",
+                description: "NewsAPI rate limit exceeded. Your feed shows the latest available stories.",
+                duration: 5000,
+              });
+            } else {
+              toast({
+                title: "No new stories",
+                description: "Your feed is already up to date.",
+                duration: 3000,
+              });
+            }
           }
         }
-      } else if (!apiStatus.success) {
+      } else if (!apiStatus.success && apiStatus.mode !== 'database-only') {
         // API error but we still have stories
         toast({
           title: "Rate limit exceeded",
@@ -177,77 +195,79 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
     return [...existingStories, ...uniqueNewStories];
   };
 
-  // Update the loadMoreStories function in NewsFeed.tsx to handle API status
-
-const loadMoreStories = async () => {
-  if (isLoading || !hasMore) return;
-  
-  setIsLoading(true);
-  setError(null);
-  
-  try {
-    const nextPage = page + 1;
-    const res = await fetch(`/api/news?page=${nextPage}&pageSize=12`);
+  // Update the loadMoreStories function to handle database-only mode
+  const loadMoreStories = async () => {
+    if (isLoading || !hasMore) return;
     
-    if (!res.ok) {
-      throw new Error(`Failed to fetch more stories: ${res.status}`);
-    }
-    
-    const data = await res.json();
-    
-    // Check and handle API status
-    const apiStatus = data.apiStatus || { success: true };
-    
-    // Notify parent component about API status
-    if (onApiStatusChange) {
-      onApiStatusChange(apiStatus);
-    }
-    
-    // If API failed but we still got stories from database, show them
-    if (data.stories && data.stories.length > 0) {
-      // Deduplicate before adding to state
-      const dedupedNewStories = deduplicateStories(data.stories);
-      
-      setStories(prevStories => {
-        return mergeStoriesWithoutDuplicates(prevStories, dedupedNewStories);
+    // If in database-only mode and at the end of stored stories, show a message
+    if (isDatabaseOnlyMode() && page > 1 && stories.length % 12 !== 0) {
+      toast({
+        title: "End of stored stories",
+        description: "No more stories available in database-only mode.",
+        duration: 3000,
       });
-      
-      setPage(nextPage);
-      setHasMore(data.pagination?.hasMore ?? false);
-      
-      // If API had an issue, notify the user but still show stories
-      if (!apiStatus.success) {
-        toast({
-          title: "Using available stories",
-          description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
-          duration: 3000,
-        });
-      }
-    } else {
       setHasMore(false);
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const nextPage = page + 1;
+      const res = await fetch(`/api/news?page=${nextPage}&pageSize=12`);
       
-      // If there are no stories and API failed, show message
-      if (!apiStatus.success) {
-        toast({
-          title: "Rate limit exceeded",
-          description: "NewsAPI rate limit exceeded. No more stories available.",
-          duration: 3000,
+      if (!res.ok) {
+        throw new Error(`Failed to fetch more stories: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      // Check and handle API status
+      const apiStatus = data.apiStatus || { success: true };
+      
+      // Notify parent component about API status
+      if (onApiStatusChange) {
+        onApiStatusChange(apiStatus);
+      }
+      
+      // If API failed but we still got stories from database, show them
+      if (data.stories && data.stories.length > 0) {
+        // Deduplicate before adding to state
+        const dedupedNewStories = deduplicateStories(data.stories);
+        
+        setStories(prevStories => {
+          return mergeStoriesWithoutDuplicates(prevStories, dedupedNewStories);
         });
+        
+        setPage(nextPage);
+        setHasMore(data.pagination?.hasMore ?? false);
+        
+        // If API had an issue but not in database-only mode, notify the user
+        if (!apiStatus.success && apiStatus.mode !== 'database-only') {
+          toast({
+            title: "Using available stories",
+            description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
+            duration: 3000,
+          });
+        }
       } else {
+        setHasMore(false);
+        
+        // Show end of feed message
         toast({
           title: "End of feed",
           description: "No more stories available.",
           duration: 3000,
         });
       }
+    } catch (error) {
+      console.error('Error loading more stories:', error);
+      setError('Failed to load more stories. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error) {
-    console.error('Error loading more stories:', error);
-    setError('Failed to load more stories. Please try again.');
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   // Create an intersection observer for infinite loading
   useEffect(() => {

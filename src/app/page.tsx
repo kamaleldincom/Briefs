@@ -1,4 +1,4 @@
-// src/app/page.tsx
+// src/app/page.tsx (partial update)
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -9,6 +9,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import StoryCardSkeleton from "@/components/feed/StoryCardSkeleton";
+import { DatabaseModeBadge } from "@/components/shared/DatabaseModeBadge";
+import { isDatabaseOnlyMode } from '@/lib/config/development';
 
 export default function Home() {
   const [stories, setStories] = useState<Story[]>([]);
@@ -20,32 +22,35 @@ export default function Home() {
     // Load initial stories
     loadStories();
     
-    // Periodic background checks for new stories
-    const checkForNewStories = async () => {
-      try {
-        const response = await fetch('/api/news?page=1&pageSize=1');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.stories && data.stories.length > 0) {
-            // Check if newest story is different than what we have
-            if (stories.length > 0 && data.stories[0].id !== stories[0].id) {
-              toast({
-                title: "New stories available",
-                description: "Pull down to refresh and see latest news",
-                duration: 5000,
-              });
+    // Only set up periodic checks if NOT in database-only mode
+    if (!isDatabaseOnlyMode()) {
+      // Periodic background checks for new stories
+      const checkForNewStories = async () => {
+        try {
+          const response = await fetch('/api/news?page=1&pageSize=1');
+          if (response.ok) {
+            const data = await response.json();
+            if (data.stories && data.stories.length > 0) {
+              // Check if newest story is different than what we have
+              if (stories.length > 0 && data.stories[0].id !== stories[0].id) {
+                toast({
+                  title: "New stories available",
+                  description: "Pull down to refresh and see latest news",
+                  duration: 5000,
+                });
+              }
             }
           }
+        } catch (error) {
+          console.error('Error checking for new stories:', error);
         }
-      } catch (error) {
-        console.error('Error checking for new stories:', error);
-      }
-    };
-    
-    // Check for new stories every 5 minutes
-    const interval = setInterval(checkForNewStories, 5 * 60 * 1000);
-    
-    return () => clearInterval(interval);
+      };
+      
+      // Check for new stories every 5 minutes
+      const interval = setInterval(checkForNewStories, 5 * 60 * 1000);
+      
+      return () => clearInterval(interval);
+    }
   }, [stories]);
 
   async function loadStories(silent: boolean = false) {
@@ -53,12 +58,13 @@ export default function Home() {
       if (!silent) setLoading(true);
       
       // Include refresh parameter to force NewsAPI fetch if silent is false
+      // and we're not in database-only mode
       const params = new URLSearchParams({
         page: '1',
         pageSize: '12',
       });
       
-      if (!silent) params.append('refresh', 'true');
+      if (!silent && !isDatabaseOnlyMode()) params.append('refresh', 'true');
       
       const res = await fetch(`/api/news?${params}`);
       
@@ -77,8 +83,8 @@ export default function Home() {
       if (fetchedStories.length > 0) {
         setStories(fetchedStories);
         
-        // If there was an API error but we still got stories from the database, show a toast
-        if (!apiStatus.success && !silent) {
+        // If there was an API error (but not database-only mode) and we still got stories, show a toast
+        if (!apiStatus.success && !silent && apiStatus.mode !== 'database-only') {
           toast({
             title: "Using cached stories",
             description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
@@ -103,6 +109,9 @@ export default function Home() {
     <div className="flex flex-col min-h-screen">
       <Header />
       <main className="flex-1">
+        {/* Add the database mode badge */}
+        <DatabaseModeBadge />
+        
         {loading && stories.length === 0 ? (
           <div className="flex flex-col">
             <StoryCardSkeleton />
