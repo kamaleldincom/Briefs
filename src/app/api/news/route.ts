@@ -1,9 +1,11 @@
 // src/app/api/news/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getStoryManager } from '@/lib/services';
-import { TRUSTED_SOURCES } from '@/lib/config/sources';
 import { Story } from '@/lib/types';
+import { getEnabledSources } from '@/lib/config/sources';
 import { CONTENT_PREFERENCES } from '@/lib/config/preferences';
+import { getArticleAgeLimit, TIME_CONFIG, MS } from '@/lib/config/time';
+import { isDatabaseOnlyMode, logApiInfo } from '@/lib/config/development';
 
 // Cache for API responses
 let responseCache: {
@@ -11,8 +13,6 @@ let responseCache: {
   timestamp: number;
   params: string;
 } | null = null;
-
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       !refresh && 
       responseCache &&
       responseCache.params === cacheParams &&
-      (now - responseCache.timestamp) < CACHE_DURATION
+      (now - responseCache.timestamp) < MS.CACHE_DURATION
     ) {
       console.log('Returning cached stories response');
       return NextResponse.json({
@@ -40,7 +40,8 @@ export async function GET(request: NextRequest) {
           currentPage: page,
           pageSize,
           hasMore: responseCache.stories.length === pageSize
-        }
+        },
+        apiStatus: { success: true, message: "Using cached data" }
       });
     }
 
@@ -51,51 +52,91 @@ export async function GET(request: NextRequest) {
     const stories = await storyManager.getStories({ page, pageSize });
     
     // Only fetch from NewsAPI if we need to refresh or don't have enough stories
-    if (refresh || stories.length < pageSize) {
-      console.log('Fetching fresh stories from NewsAPI...');
-      
-      // Fetch latest news
-      const response = await fetch(
-        `https://newsapi.org/v2/top-headlines?` + 
-        new URLSearchParams({
-          sources: TRUSTED_SOURCES.join(','),
-          pageSize: '100',
-          apiKey: process.env.NEWS_API_KEY || ''
-        })
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch from NewsAPI: ${response.status} ${response.statusText}`);
-      }
-
-      const newsData = await response.json();
-      
-      if (newsData.articles && newsData.articles.length > 0) {
-        // Process articles in background
-        processArticlesInBackground(storyManager, newsData.articles);
+    let apiStatus = { success: true, message: null };
+    
+    // Check if database-only mode is enabled
+    if (isDatabaseOnlyMode()) {
+      logApiInfo('Database-only mode active. Skipping NewsAPI fetch.');
+      apiStatus = { 
+        success: false, 
+        message: 'Database-only mode is enabled. Using existing database content.'
+      };
+    }
+    else if (refresh || stories.length < pageSize) {
+      try {
+        logApiInfo('Fetching fresh stories from NewsAPI...');
         
-        // If refresh was requested, wait a moment for processing to start
-        if (refresh) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          // Get refreshed stories
-          const refreshedStories = await storyManager.getStories({ page, pageSize });
-          
-          // Update cache
-          responseCache = {
-            stories: refreshedStories,
-            timestamp: now,
-            params: cacheParams
+        // Fetch latest news
+        const response = await fetch(
+          `https://newsapi.org/v2/top-headlines?` + 
+          new URLSearchParams({
+            sources: getEnabledSources().join(','),
+            from: getArticleAgeLimit(), // Use the date limit from config
+            pageSize: '100',
+            apiKey: process.env.NEWS_API_KEY || ''
+          })
+        );
+
+        // Handle rate limiting and other errors
+        if (!response.ok) {
+          // Set API status for response
+          apiStatus = { 
+            success: false, 
+            message: `NewsAPI request failed: ${response.status} ${response.statusText}` 
           };
           
-          return NextResponse.json({
-            stories: sanitizeStories(refreshedStories),
-            pagination: {
-              currentPage: page,
-              pageSize,
-              hasMore: refreshedStories.length === pageSize
+          if (response.status === 429) {
+            console.log('NewsAPI rate limit exceeded. Using existing database content.');
+          } else {
+            console.error(`NewsAPI error: ${response.status} ${response.statusText}`);
+          }
+          
+          // Continue with existing data instead of throwing error
+        } else {
+          // Process API response if successful
+          const newsData = await response.json();
+          
+          if (newsData.articles && newsData.articles.length > 0) {
+            console.log(`Retrieved ${newsData.articles.length} articles from NewsAPI`);
+            
+            // Process articles in background
+            processArticlesInBackground(storyManager, newsData.articles);
+            
+            // If refresh was requested, wait a moment for processing to start
+            if (refresh) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              // Get refreshed stories
+              const refreshedStories = await storyManager.getStories({ page, pageSize });
+              
+              // Update cache
+              responseCache = {
+                stories: refreshedStories,
+                timestamp: now,
+                params: cacheParams
+              };
+              
+              return NextResponse.json({
+                stories: sanitizeStories(refreshedStories),
+                pagination: {
+                  currentPage: page,
+                  pageSize,
+                  hasMore: refreshedStories.length === pageSize
+                },
+                apiStatus
+              });
             }
-          });
+          } else {
+            console.log('No new articles found from NewsAPI');
+          }
         }
+      } catch (error) {
+        // Handle any exceptions during API fetch without failing the whole request
+        console.error('Error fetching from NewsAPI:', error);
+        apiStatus = { 
+          success: false, 
+          message: `Error connecting to NewsAPI: ${error instanceof Error ? error.message : 'Unknown error'}`
+        };
+        // Continue with existing database content
       }
     }
     
@@ -125,7 +166,8 @@ export async function GET(request: NextRequest) {
           currentPage: page,
           pageSize,
           hasMore: stories.length >= pageSize // If we had enough stories originally, there are likely more
-        }
+        },
+        apiStatus
       });
     }
     
@@ -146,7 +188,8 @@ export async function GET(request: NextRequest) {
         currentPage: page,
         pageSize,
         hasMore: stories.length === pageSize
-      }
+      },
+      apiStatus
     });
   } catch (error) {
     console.error('API Route: Failed to fetch or process news:', error);

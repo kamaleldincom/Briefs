@@ -56,6 +56,14 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
       
       const data = await res.json();
       
+      // Check API status to show appropriate messages
+      const apiStatus = data.apiStatus || { success: true };
+      
+      // Notify parent component about API status
+      if (onApiStatusChange) {
+        onApiStatusChange(apiStatus);
+      }
+      
       if (data.stories && data.stories.length > 0) {
         // Check if we have new stories
         const oldStoryIds = new Set(stories.map(s => s.id));
@@ -76,18 +84,43 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
             });
           }
           
-          toast({
-            title: "Feed refreshed",
-            description: "New stories have been loaded.",
-            duration: 3000,
-          });
+          // Show different toast based on API status
+          if (!apiStatus.success) {
+            toast({
+              title: "Using existing stories",
+              description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
+              duration: 5000,
+            });
+          } else {
+            toast({
+              title: "Feed refreshed",
+              description: "New stories have been loaded.",
+              duration: 3000,
+            });
+          }
         } else {
-          toast({
-            title: "No new stories",
-            description: "Your feed is already up to date.",
-            duration: 3000,
-          });
+          // Show different toast based on API status
+          if (!apiStatus.success) {
+            toast({
+              title: "Rate limit exceeded",
+              description: "NewsAPI rate limit exceeded. Your feed shows the latest available stories.",
+              duration: 5000,
+            });
+          } else {
+            toast({
+              title: "No new stories",
+              description: "Your feed is already up to date.",
+              duration: 3000,
+            });
+          }
         }
+      } else if (!apiStatus.success) {
+        // API error but we still have stories
+        toast({
+          title: "Rate limit exceeded",
+          description: "NewsAPI rate limit exceeded. Showing existing stories from our database.",
+          duration: 5000,
+        });
       }
     } catch (error) {
       console.error('Error refreshing feed:', error);
@@ -144,43 +177,77 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
     return [...existingStories, ...uniqueNewStories];
   };
 
-  // Load more stories
-  const loadMoreStories = async () => {
-    if (isLoading || !hasMore) return;
+  // Update the loadMoreStories function in NewsFeed.tsx to handle API status
+
+const loadMoreStories = async () => {
+  if (isLoading || !hasMore) return;
+  
+  setIsLoading(true);
+  setError(null);
+  
+  try {
+    const nextPage = page + 1;
+    const res = await fetch(`/api/news?page=${nextPage}&pageSize=12`);
     
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const nextPage = page + 1;
-      const res = await fetch(`/api/news?page=${nextPage}&pageSize=12`);
-      
-      if (!res.ok) {
-        throw new Error(`Failed to fetch more stories: ${res.status}`);
-      }
-      
-      const data = await res.json();
-      
-      if (data.stories && data.stories.length > 0) {
-        // Deduplicate before adding to state
-        const dedupedNewStories = deduplicateStories(data.stories);
-        
-        setStories(prevStories => {
-          return mergeStoriesWithoutDuplicates(prevStories, dedupedNewStories);
-        });
-        
-        setPage(nextPage);
-        setHasMore(data.pagination?.hasMore ?? false);
-      } else {
-        setHasMore(false);
-      }
-    } catch (error) {
-      console.error('Error loading more stories:', error);
-      setError('Failed to load more stories. Please try again.');
-    } finally {
-      setIsLoading(false);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch more stories: ${res.status}`);
     }
-  };
+    
+    const data = await res.json();
+    
+    // Check and handle API status
+    const apiStatus = data.apiStatus || { success: true };
+    
+    // Notify parent component about API status
+    if (onApiStatusChange) {
+      onApiStatusChange(apiStatus);
+    }
+    
+    // If API failed but we still got stories from database, show them
+    if (data.stories && data.stories.length > 0) {
+      // Deduplicate before adding to state
+      const dedupedNewStories = deduplicateStories(data.stories);
+      
+      setStories(prevStories => {
+        return mergeStoriesWithoutDuplicates(prevStories, dedupedNewStories);
+      });
+      
+      setPage(nextPage);
+      setHasMore(data.pagination?.hasMore ?? false);
+      
+      // If API had an issue, notify the user but still show stories
+      if (!apiStatus.success) {
+        toast({
+          title: "Using available stories",
+          description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
+          duration: 3000,
+        });
+      }
+    } else {
+      setHasMore(false);
+      
+      // If there are no stories and API failed, show message
+      if (!apiStatus.success) {
+        toast({
+          title: "Rate limit exceeded",
+          description: "NewsAPI rate limit exceeded. No more stories available.",
+          duration: 3000,
+        });
+      } else {
+        toast({
+          title: "End of feed",
+          description: "No more stories available.",
+          duration: 3000,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error loading more stories:', error);
+    setError('Failed to load more stories. Please try again.');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // Create an intersection observer for infinite loading
   useEffect(() => {

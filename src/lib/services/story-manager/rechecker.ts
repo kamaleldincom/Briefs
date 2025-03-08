@@ -1,12 +1,19 @@
 // src/lib/services/story-manager/rechecker.ts
 import { Story } from '@/lib/types';
 import { StoryManagerService } from './index';
-import { CONFIG } from '@/lib/config';
-
-const ACTIVE_STORY_WINDOW = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+import { TIME_CONFIG, MS } from '@/lib/config/time';
+import { getEnabledSources } from '@/lib/config/sources';
+import { getArticleAgeLimit } from '@/lib/config/time';
+import { isDatabaseOnlyMode, logApiInfo } from '@/lib/config/development';
 
 export class StoryRechecker {
   private initialized = false;
+  private lastApiError: Date | null = null;
+  private apiErrorCount = 0;
+  
+  // Exponential backoff settings for API calls
+  private readonly MIN_BACKOFF_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly MAX_BACKOFF_MS = 60 * 60 * 1000; // 1 hour
 
   constructor(private storyManager: StoryManagerService) {}
 
@@ -21,17 +28,29 @@ export class StoryRechecker {
     // Run initial check after a short delay to give the system time to initialize
     setTimeout(() => this.recheckStories(), 60 * 1000); // 1 minute delay
 
-    // Set up periodic checking every 15 minutes
-    setInterval(() => this.recheckStories(), 15 * 60 * 1000);
+    // Set up periodic checking
+    setInterval(() => this.recheckStories(), MS.RECHECK_INTERVAL);
   }
 
   private async recheckStories() {
     try {
-      console.log('Starting periodic story recheck...');
+      // Check if we're in database-only mode
+      if (isDatabaseOnlyMode()) {
+        logApiInfo('Database-only mode active. Skipping story rechecking.');
+        return;
+      }
+      
+      // Check if we should skip this run due to API rate limiting
+      if (this.shouldSkipDueToRateLimiting()) {
+        logApiInfo('Skipping story recheck due to recent API errors');
+        return;
+      }
+      
+      logApiInfo('Starting periodic story recheck...');
       const stories = await this.storyManager.getStories();
       const activeStories = this.filterActiveStories(stories);
 
-      console.log(`Found ${activeStories.length} active stories to recheck`);
+      logApiInfo(`Found ${activeStories.length} active stories to recheck`);
 
       // Process a few stories at a time to avoid overloading the API
       const batchSize = 5;
@@ -45,14 +64,16 @@ export class StoryRechecker {
         }
       }
 
-      console.log('Completed story recheck');
+      // Reset error count if successful
+      this.apiErrorCount = 0;
+      logApiInfo('Completed story recheck');
     } catch (error) {
       console.error('Error during story recheck:', error);
     }
   }
 
   private filterActiveStories(stories: Story[]): Story[] {
-    const cutoffTime = Date.now() - ACTIVE_STORY_WINDOW;
+    const cutoffTime = Date.now() - MS.ACTIVE_STORY_WINDOW;
     return stories.filter(story => 
       new Date(story.metadata.lastUpdated).getTime() > cutoffTime
     );
@@ -68,15 +89,27 @@ export class StoryRechecker {
         new URLSearchParams({
           q: this.generateSearchQuery(story),
           from: this.getSearchStartDate(story),
+          sources: getEnabledSources().join(','),
           sortBy: 'publishedAt',
           apiKey: process.env.NEWS_API_KEY || '',
           language: 'en'
         })
       );
   
+      // Handle rate limiting and other errors
       if (!response.ok) {
-        throw new Error(`Failed to fetch updates: ${response.status} ${response.statusText}`);
+        this.handleApiError(response.status);
+        
+        if (response.status === 429) {
+          console.log(`Rate limit exceeded while rechecking story: ${story.title}`);
+          return; // Skip this story but don't throw, allowing other operations to continue
+        } else {
+          throw new Error(`Failed to fetch updates: ${response.status} ${response.statusText}`);
+        }
       }
+      
+      // Reset error count on success
+      this.apiErrorCount = 0;
   
       const data = await response.json();
       
@@ -90,6 +123,33 @@ export class StoryRechecker {
     } catch (error) {
       console.error(`Error rechecking story ${story.id}:`, error);
     }
+  }
+  
+  private handleApiError(status: number) {
+    this.lastApiError = new Date();
+    this.apiErrorCount++;
+    
+    // Log more details for rate limit errors
+    if (status === 429) {
+      console.warn(`NewsAPI rate limit hit. Error count: ${this.apiErrorCount}`);
+    }
+  }
+  
+  private shouldSkipDueToRateLimiting(): boolean {
+    // If no errors occurred yet, don't skip
+    if (!this.lastApiError) return false;
+    
+    // Calculate time since last error
+    const timeSinceError = Date.now() - this.lastApiError.getTime();
+    
+    // Calculate backoff time based on error count (exponential)
+    const backoffTime = Math.min(
+      this.MIN_BACKOFF_MS * Math.pow(2, this.apiErrorCount - 1), 
+      this.MAX_BACKOFF_MS
+    );
+    
+    // Skip if we're still within the backoff period
+    return timeSinceError < backoffTime;
   }
 
   private generateSearchQuery(story: Story): string {
@@ -119,9 +179,19 @@ export class StoryRechecker {
   }
 
   private getSearchStartDate(story: Story): string {
-    // Get date from one day before the story was first published
-    const date = new Date(story.metadata.firstPublished);
-    date.setDate(date.getDate() - 1); // Go back one day to catch slightly older articles
-    return date.toISOString().split('T')[0]; // YYYY-MM-DD format
+    // Use the common function to get age limit
+    const ageLimit = new Date(getArticleAgeLimit());
+    
+    // Get date from story first published
+    const storyDate = new Date(story.metadata.firstPublished);
+    
+    // Use the more recent date (don't go back further than MAX_ARTICLE_AGE_DAYS)
+    if (storyDate < ageLimit) {
+      return getArticleAgeLimit();
+    }
+    
+    // Go back one day from story date to catch slightly older articles
+    storyDate.setDate(storyDate.getDate() - 1);
+    return storyDate.toISOString().split('T')[0]; // YYYY-MM-DD format
   }
 }

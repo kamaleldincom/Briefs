@@ -68,11 +68,23 @@ export default function Home() {
       
       const data = await res.json();
       
+      // Check API status
+      const apiStatus = data.apiStatus || { success: true };
+      
       // Handle both formats: direct array or {stories: [...]} object
       const fetchedStories = Array.isArray(data) ? data : data.stories || [];
       
       if (fetchedStories.length > 0) {
         setStories(fetchedStories);
+        
+        // If there was an API error but we still got stories from the database, show a toast
+        if (!apiStatus.success && !silent) {
+          toast({
+            title: "Using cached stories",
+            description: "NewsAPI rate limit exceeded. Showing available stories from our database.",
+            duration: 5000,
+          });
+        }
       } else {
         console.warn("No stories in API response");
       }
@@ -87,7 +99,6 @@ export default function Home() {
       if (!silent) setLoading(false);
     }
   }
-
   return (
     <div className="flex flex-col min-h-screen">
       <Header />

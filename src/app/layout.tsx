@@ -5,6 +5,7 @@ import "./globals.css";
 import { ScrollRestorationProvider } from "@/context/ScrollRestorationContext";
 import Header from "@/components/navigation/Header";
 import { Toaster } from "@/components/ui/toaster";
+import { DevModeBanner } from "@/components/development/DevModeBanner";
 
 // Initialize Inter with the subsets and weights we need
 const inter = Inter({
