@@ -5,8 +5,10 @@ import { useState, useEffect } from 'react';
 import NewsFeed from "@/components/feed/NewsFeed";
 import Header from "@/components/navigation/Header";
 import { Story } from "@/lib/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { Button } from "@/components/ui/button";
+import StoryCardSkeleton from "@/components/feed/StoryCardSkeleton";
 
 export default function Home() {
   const [stories, setStories] = useState<Story[]>([]);
@@ -18,13 +20,33 @@ export default function Home() {
     // Load initial stories
     loadStories();
     
-    // Refresh stories every 5 minutes
-    const interval = setInterval(() => {
-      loadStories(true);
-    }, 5 * 60 * 1000);
+    // Periodic background checks for new stories
+    const checkForNewStories = async () => {
+      try {
+        const response = await fetch('/api/news?page=1&pageSize=1');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.stories && data.stories.length > 0) {
+            // Check if newest story is different than what we have
+            if (stories.length > 0 && data.stories[0].id !== stories[0].id) {
+              toast({
+                title: "New stories available",
+                description: "Pull down to refresh and see latest news",
+                duration: 5000,
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking for new stories:', error);
+      }
+    };
+    
+    // Check for new stories every 5 minutes
+    const interval = setInterval(checkForNewStories, 5 * 60 * 1000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [stories]);
 
   async function loadStories(silent: boolean = false) {
     try {
@@ -45,33 +67,14 @@ export default function Home() {
       }
       
       const data = await res.json();
-      console.log("API Response:", data); // Debug log
       
       // Handle both formats: direct array or {stories: [...]} object
       const fetchedStories = Array.isArray(data) ? data : data.stories || [];
       
-      if (silent) {
-        // In silent mode, check if we have new stories
-        const newStoryIds = new Set(fetchedStories.map((s: Story) => s.id));
-        const oldStoryIds = new Set(stories.map(s => s.id));
-        
-        const hasNewStories = fetchedStories.some((s: Story) => !oldStoryIds.has(s.id));
-        
-        if (hasNewStories && fetchedStories.length > 0) {
-          setStories(fetchedStories);
-          toast({
-            title: "New stories available",
-            description: "The feed has been updated with new stories",
-            duration: 3000,
-          });
-        }
+      if (fetchedStories.length > 0) {
+        setStories(fetchedStories);
       } else {
-        // In non-silent mode, always update
-        if (fetchedStories.length > 0) {
-          setStories(fetchedStories);
-        } else {
-          console.warn("No stories in API response");
-        }
+        console.warn("No stories in API response");
       }
       
       setError(null);
@@ -90,22 +93,21 @@ export default function Home() {
       <Header />
       <main className="flex-1">
         {loading && stories.length === 0 ? (
-          <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-              <h2 className="text-xl font-semibold">Loading stories...</h2>
-            </div>
+          <div className="flex flex-col">
+            <StoryCardSkeleton />
           </div>
         ) : error ? (
           <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
             <div className="text-center">
-              <h2 className="text-xl font-semibold text-red-600">{error}</h2>
-              <button 
+              <h2 className="text-xl font-semibold text-red-600 mb-4">{error}</h2>
+              <Button 
                 onClick={() => loadStories()}
-                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                variant="default"
+                className="gap-2"
               >
+                <RefreshCw className="h-4 w-4" />
                 Try Again
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
