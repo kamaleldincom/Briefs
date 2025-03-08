@@ -2,13 +2,12 @@
 import { Story } from '@/lib/types';
 import { NewsStorage } from '../storage/types';
 import { NewsAPIArticle } from './types';
-import { SOURCE_DETAILS } from '@/lib/config/sources';
-import { AIServiceImpl } from '../ai';
 import { CONFIG } from '@/lib/config';
+import { AIServiceImpl } from '../ai';
 import { StoryRechecker } from './rechecker';
-import { calculateSimilarity } from '@/lib/utils';
 import { RawArticle, StoryArticleLink } from '@/lib/types/database';
 import { v4 as uuidv4 } from 'uuid';
+import { ArticleProcessor } from './article-processor';
 
 export class StoryManagerService {
   private aiService: AIServiceImpl;
@@ -183,10 +182,16 @@ export class StoryManagerService {
   private async storeRawArticle(article: NewsAPIArticle): Promise<RawArticle> {
     console.log('Storing raw article:', article.title);
     
+    // Clean the article content before storing
+    const cleanedArticle = {
+      ...article,
+      content: ArticleProcessor.cleanArticleContent(article.content || '')
+    };
+    
     // Create raw article object
     const rawArticle: RawArticle = {
       id: uuidv4(),
-      sourceArticle: article,
+      sourceArticle: cleanedArticle,
       processed: false,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -233,7 +238,7 @@ export class StoryManagerService {
     if (story.sources.length <= 2) return 'major';
     
     // Check if article contains new significant information
-    const containsBreakingTerms = this.containsBreakingTerms(article.sourceArticle);
+    const containsBreakingTerms = ArticleProcessor.containsBreakingTerms(article.sourceArticle);
     if (containsBreakingTerms) return 'major';
     
     // Check publish time - if it's much newer than the last update, it might be significant
@@ -242,16 +247,6 @@ export class StoryManagerService {
     
     // Default to minor impact
     return 'minor';
-  }
-  
-  /**
-   * Check if an article contains breaking news terms
-   */
-  private containsBreakingTerms(article: NewsAPIArticle): boolean {
-    const breakingTerms = ['breaking', 'urgent', 'just in', 'update', 'developing'];
-    const content = `${article.title} ${article.description || ''}`.toLowerCase();
-    
-    return breakingTerms.some(term => content.includes(term));
   }
   
   /**
@@ -298,7 +293,7 @@ export class StoryManagerService {
     
     try {
       // Create source object from the article
-      const newSource = this.createSourceFromArticle(article);
+      const newSource = ArticleProcessor.createSourceFromArticle(article);
       
       // Only add if not already present
       const sourceExists = story.sources.some(s => s.url === newSource.url);
@@ -339,13 +334,33 @@ export class StoryManagerService {
           ...story.metadata,
           totalSources: mergedSources.length,
           lastUpdated: new Date(),
-          latestDevelopment: article.description || undefined
+          latestDevelopment: article.description || undefined,
+          // Use the best image available across all sources
+          imageUrl: this.getBestImage(story, article)
         }
       });
     } catch (error) {
       console.error('Error updating story with new source:', error);
       throw error;
     }
+  }
+  
+  /**
+   * Get the best image URL from available sources
+   */
+  private getBestImage(story: Story, newArticle: NewsAPIArticle): string | undefined {
+    // If the new article has an image and the story doesn't, use the new one
+    if (newArticle.urlToImage && !story.metadata.imageUrl) {
+      return newArticle.urlToImage;
+    }
+    
+    // If the story already has an image, keep it
+    if (story.metadata.imageUrl) {
+      return story.metadata.imageUrl;
+    }
+    
+    // No image available
+    return undefined;
   }
   
   /**
@@ -360,7 +375,7 @@ export class StoryManagerService {
     if (timeSinceLastUpdate > 6 * 60 * 60 * 1000) return true; // 6 hours
     
     // If the article contains breaking terms, update
-    if (this.containsBreakingTerms(newArticle.sourceArticle)) return true;
+    if (ArticleProcessor.containsBreakingTerms(newArticle.sourceArticle)) return true;
     
     // If we have added 3 or more sources since last analysis, update
     const threshold = 3;
@@ -377,13 +392,15 @@ export class StoryManagerService {
    * Create a story object from a NewsAPI article
    */
   private createStoryFromArticle(article: NewsAPIArticle): Story {
-    const source = this.createSourceFromArticle(article);
+    const source = ArticleProcessor.createSourceFromArticle(article);
+    const substantialContent = ArticleProcessor.getSubstantialContent(article);
+    const entities = ArticleProcessor.extractEntities(article.title + " " + article.description);
 
     return {
       id: this.createStoryId(article.title),
       title: article.title,
       summary: article.description || '',
-      content: article.content || article.description || '',
+      content: substantialContent,
       sources: [source],
       metadata: {
         firstPublished: new Date(article.publishedAt),
@@ -406,7 +423,7 @@ export class StoryManagerService {
           sourceName: source.name,
           stance: 'Reporting',
           summary: article.description || 'No description available',
-          keyArguments: []
+          keyArguments: entities.length > 0 ? [`Mentions ${entities.slice(0, 3).join(', ')}`] : []
         }],
         implications: {
           shortTerm: [],
@@ -423,31 +440,8 @@ export class StoryManagerService {
           sources: [article.source.name],
           significance: 'Initial report'
         }],
-        relatedTopics: []
+        relatedTopics: entities.slice(0, 5) // Use extracted entities as initial related topics
       }
-    };
-  }
-
-  /**
-   * Create a source object from a NewsAPI article
-   */
-  private createSourceFromArticle(article: NewsAPIArticle): { 
-    id: string; 
-    name: string; 
-    url: string; 
-    bias: number; 
-    sentiment: number; 
-    quote?: string; 
-    perspective?: string; 
-  } {
-    return {
-      id: this.createSourceId(article.source.id || article.source.name),
-      name: article.source.name,
-      url: article.url,
-      bias: SOURCE_DETAILS[article.source.id as keyof typeof SOURCE_DETAILS]?.bias || 0,
-      sentiment: 0,
-      quote: this.extractQuote(article.content || article.description || ''),
-      perspective: article.description
     };
   }
 
@@ -465,30 +459,6 @@ export class StoryManagerService {
       .slice(0, 50); // Limit length
 
     return `${sanitizedTitle}-${timestamp}`;
-  }
-
-  /**
-   * Create a source ID from a name
-   */
-  private createSourceId(name: string): string {
-    return name
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/[\s_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  }
-
-  /**
-   * Extract a quote from article content
-   */
-  private extractQuote(content: string): string | undefined {
-    const matches = content.match(/"([^"]*?)"/g);
-    if (matches && matches[0].length > 20) { // Only use quotes that are substantial
-      return matches[0].replace(/"/g, '');
-    }
-    // If no substantial quote found, create one from the content
-    return content.slice(0, 100) + '...';
   }
 
   /**

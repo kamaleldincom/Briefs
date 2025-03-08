@@ -1,3 +1,4 @@
+// src/components/story/StoryDetail.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -6,7 +7,7 @@ import { StoryArticleLink } from "@/lib/types/database";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, BarChart2, FileText, ExternalLink } from "lucide-react";
+import { Clock, BarChart2, FileText, ExternalLink, AlertTriangle } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import ShareButton from "../shared/ShareButton";
 import OriginalArticleModal from "./OriginalArticleModal";
@@ -34,6 +35,14 @@ interface RawArticle {
   createdAt: Date;
   updatedAt: Date;
 }
+
+// Normalize KeyPoint to handle both string and object formats
+const normalizeKeyPoint = (point: KeyPoint | string): KeyPoint => {
+  if (typeof point === 'string') {
+    return { point, importance: 'medium' };
+  }
+  return point;
+};
 
 const KeyPointComponent = ({ point }: { point: KeyPoint }) => (
   <div className="flex items-start gap-3 mb-4">
@@ -63,7 +72,7 @@ const PerspectiveComponent = ({ perspective }: { perspective: Perspective }) => 
       )}
     </div>
     <p className="text-gray-800 mb-3">{perspective.summary}</p>
-    {perspective.keyArguments?.length > 0 && (
+    {perspective.keyArguments && perspective.keyArguments.length > 0 && (
       <div className="mb-3">
         <h4 className="text-sm font-semibold text-gray-700 mb-2">Key Arguments:</h4>
         <ul className="list-disc list-inside space-y-1">
@@ -169,17 +178,58 @@ const TimelineEvent = ({
   </div>
 );
 
+// Component to display when analysis section is empty
+const EmptyAnalysisSection = ({ title }: { title: string }) => (
+  <div className="py-6 text-center">
+    <div className="flex justify-center mb-2">
+      <AlertTriangle className="h-6 w-6 text-gray-400" />
+    </div>
+    <h3 className="text-lg font-medium text-gray-600 mb-2">No {title} Available</h3>
+    <p className="text-gray-500 text-sm">
+      This section couldn't be generated from the available sources.
+    </p>
+  </div>
+);
+
 export default function StoryDetail({ story }: StoryDetailProps) {
   const [storyLinks, setStoryLinks] = useState<StoryArticleLink[]>([]);
   const [rawArticles, setRawArticles] = useState<RawArticle[]>([]);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Safely access potentially undefined analysis properties
+  const analysis = story.analysis || {};
+  const hasAnalysis = !!analysis.summary;
+  
+  // Normalize key points to handle both string and object formats
+  const keyPoints = (analysis.keyPoints || []).map(normalizeKeyPoint);
+  
+  // Ensure perspectives is always an array
+  const perspectives = Array.isArray(analysis.perspectives) ? analysis.perspectives : [];
+  
+  // Ensure timeline is always an array and dates are properly parsed
+  const timeline = (analysis.timeline || []).map(event => ({
+    ...event,
+    timestamp: event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp)
+  }));
+  
+  // Ensure notableQuotes is always an array
+  const notableQuotes = Array.isArray(analysis.notableQuotes) ? analysis.notableQuotes : [];
+  
+  // Ensure implications structure exists
+  const implications = analysis.implications || { shortTerm: [], longTerm: [] };
+  const hasImplications = (implications.shortTerm?.length > 0 || implications.longTerm?.length > 0);
+  
+  // Ensure relatedTopics is always an array
+  const relatedTopics = Array.isArray(analysis.relatedTopics) ? analysis.relatedTopics : [];
 
   // Fetch story links and raw articles
   useEffect(() => {
     const fetchStoryData = async () => {
       try {
         setLoading(true);
+        setError(null);
         
         // Fetch story links
         const linksResponse = await fetch(`/api/stories/${story.id}/links`);
@@ -189,36 +239,53 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           setStoryLinks(linksData);
           
           // If we have links, fetch the corresponding raw articles
-          if (linksData.length > 0) {
+          if (linksData && linksData.length > 0) {
             const articleIds = linksData.map((link: StoryArticleLink) => link.articleId);
             
             // Fetch each article
             const articlesData = await Promise.all(
               articleIds.map(async (id: string) => {
-                const response = await fetch(`/api/articles/${id}`);
-                if (response.ok) {
-                  return await response.json();
+                try {
+                  const response = await fetch(`/api/articles/${id}`);
+                  if (response.ok) {
+                    return await response.json();
+                  }
+                  console.warn(`Failed to fetch article ${id}: ${response.status}`);
+                  return null;
+                } catch (error) {
+                  console.error(`Error fetching article ${id}:`, error);
+                  return null;
                 }
-                return null;
               })
             );
             
             // Filter out any null results
             setRawArticles(articlesData.filter(Boolean));
           }
+        } else {
+          console.warn(`Failed to fetch story links: ${linksResponse.status}`);
+          // Don't set an error to the user - just log it
         }
       } catch (error) {
         console.error('Error fetching story data:', error);
+        setError('Failed to load some story details. The content shown may be incomplete.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStoryData();
+    if (story.id) {
+      fetchStoryData();
+    }
   }, [story.id]);
 
   // Helper function to find the most appropriate article ID for a source
   const findArticleIdForSource = (source: Source): string | null => {
+    // If we don't have any raw articles or links, return null
+    if (!rawArticles.length || !storyLinks.length) {
+      return null;
+    }
+    
     // First try to find a direct URL match
     const directMatch = storyLinks.find(link => {
       const article = rawArticles.find(a => a.id === link.articleId);
@@ -286,6 +353,15 @@ export default function StoryDetail({ story }: StoryDetailProps) {
       </div>
 
       <div className="container max-w-4xl mx-auto px-4">
+        {error && (
+          <div className="my-4 p-4 bg-amber-50 border border-amber-200 rounded-md text-amber-700">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
+        
         <div className="mt-6 space-y-6">
           {/* Latest Development */}
           <Card>
@@ -306,39 +382,32 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           <Card>
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Story Analysis</h3>
-              {story.analysis.summary ? (
+              {hasAnalysis ? (
                 <div className="space-y-6">
                   <div className="prose max-w-none">
-                    <p className="text-gray-700">{story.analysis.summary}</p>
-                    {story.analysis.backgroundContext && (
+                    <p className="text-gray-700">{analysis.summary}</p>
+                    {analysis.backgroundContext && (
                       <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                         <h4 className="font-medium text-gray-900 mb-2">Background Context</h4>
-                        <p className="text-gray-700">{story.analysis.backgroundContext}</p>
+                        <p className="text-gray-700">{analysis.backgroundContext}</p>
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="text-gray-500 text-center py-8">
-                  <h3 className="text-lg font-semibold mb-2">AI Analysis Coming Soon</h3>
-                  <p>We'll provide AI-enhanced analysis of different perspectives and key insights.</p>
-                </div>
+                <EmptyAnalysisSection title="AI Analysis" />
               )}
             </CardContent>
           </Card>
 
           {/* Key Points */}
-          {story.analysis.keyPoints?.length > 0 && (
+          {keyPoints.length > 0 && (
             <Card>
               <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-4">Key Points</h3>
                 <div className="space-y-4">
-                  {story.analysis.keyPoints.map((point, index) => (
-                    <KeyPointComponent key={index} point={
-                      typeof point === 'string' 
-                        ? { point, importance: 'medium' } 
-                        : point
-                    } />
+                  {keyPoints.map((point, index) => (
+                    <KeyPointComponent key={`keypoint-${index}`} point={point} />
                   ))}
                 </div>
               </CardContent>
@@ -350,14 +419,14 @@ export default function StoryDetail({ story }: StoryDetailProps) {
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Different Perspectives</h3>
               <div className="space-y-4">
-                {story.analysis.perspectives && story.analysis.perspectives.length > 0 ? (
-                  story.analysis.perspectives.map((perspective, index) => (
+                {perspectives.length > 0 ? (
+                  perspectives.map((perspective, index) => (
                     <PerspectiveComponent 
                       key={`perspective-${index}-${perspective.sourceName}`} 
                       perspective={perspective}
                     />
                   ))
-                ) : (
+                ) : story.sources.length > 0 ? (
                   story.sources.map((source, index) => (
                     <div 
                       key={`source-${source.id}-${index}`} 
@@ -371,54 +440,51 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                       </p>
                     </div>
                   ))
+                ) : (
+                  <EmptyAnalysisSection title="Perspectives" />
                 )}
               </div>
             </CardContent>
           </Card>
 
           {/* Implications */}
-          {story.analysis.implications && (
-            (story.analysis.implications.shortTerm?.length > 0 || 
-             story.analysis.implications.longTerm?.length > 0) && (
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold mb-4">Implications</h3>
-                  <div className="space-y-6">
-                    {story.analysis.implications.shortTerm && 
-                     story.analysis.implications.shortTerm.length > 0 && (
-                      <div>
-                        <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
-                        <ul className="list-disc list-inside space-y-2">
-                          {story.analysis.implications.shortTerm.map((impact, idx) => (
-                            <li key={idx} className="text-gray-700">{impact}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {story.analysis.implications.longTerm && 
-                     story.analysis.implications.longTerm.length > 0 && (
-                      <div>
-                        <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
-                        <ul className="list-disc list-inside space-y-2">
-                          {story.analysis.implications.longTerm.map((impact, idx) => (
-                            <li key={idx} className="text-gray-700">{impact}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )
+          {hasImplications && (
+            <Card>
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-4">Implications</h3>
+                <div className="space-y-6">
+                  {implications.shortTerm && implications.shortTerm.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-medium mb-3">Short-term Impact</h4>
+                      <ul className="list-disc list-inside space-y-2">
+                        {implications.shortTerm.map((impact, idx) => (
+                          <li key={`short-term-${idx}`} className="text-gray-700">{impact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {implications.longTerm && implications.longTerm.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-medium mb-3">Long-term Impact</h4>
+                      <ul className="list-disc list-inside space-y-2">
+                        {implications.longTerm.map((impact, idx) => (
+                          <li key={`long-term-${idx}`} className="text-gray-700">{impact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Notable Statements */}
-          {story.analysis.notableQuotes && story.analysis.notableQuotes.length > 0 && (
+          {notableQuotes.length > 0 && (
             <Card>
               <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-4">Notable Statements</h3>
                 <div className="space-y-4">
-                  {story.analysis.notableQuotes.map((quote, index) => (
+                  {notableQuotes.map((quote, index) => (
                     <NotableQuote 
                       key={`quote-${index}-${quote.source}`}
                       {...quote}
@@ -430,12 +496,12 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           )}
 
           {/* Timeline */}
-          {story.analysis.timeline && story.analysis.timeline.length > 0 && (
+          {timeline.length > 0 && (
             <Card>
               <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-4">Developments Timeline</h3>
                 <div className="space-y-8">
-                  {story.analysis.timeline.map((entry, index) => (
+                  {timeline.map((entry, index) => (
                     <TimelineEvent
                       key={`timeline-${entry.timestamp.toString()}-${index}`}
                       {...entry}
@@ -449,13 +515,13 @@ export default function StoryDetail({ story }: StoryDetailProps) {
           )}
 
           {/* Related Topics */}
-          {story.analysis.relatedTopics && story.analysis.relatedTopics.length > 0 && (
+          {relatedTopics.length > 0 && (
             <Card>
               <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-4">Related Topics</h3>
                 <div className="flex flex-wrap gap-2">
-                  {story.analysis.relatedTopics.map((topic, index) => (
-                    <Badge key={index} variant="secondary">
+                  {relatedTopics.map((topic, index) => (
+                    <Badge key={`topic-${index}`} variant="secondary">
                       {topic}
                     </Badge>
                   ))}
@@ -472,7 +538,7 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                 <div className="py-8 text-center">
                   <p className="text-gray-500">Loading source details...</p>
                 </div>
-              ) : (
+              ) : story.sources.length > 0 ? (
                 <div className="divide-y">
                   {story.sources.map((source, index) => (
                     <div 
@@ -482,8 +548,8 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{source.name}</span>
                         <div className="flex space-x-2">
-                          {/* Read on our site button */}
-                          {storyLinks.length > 0 && (
+                          {/* Read on our site button - only show if we have raw articles */}
+                          {rawArticles.length > 0 && (
                             <Button 
                               variant="outline" 
                               size="sm"
@@ -522,6 +588,10 @@ export default function StoryDetail({ story }: StoryDetailProps) {
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center">
+                  <p className="text-gray-500">No source information available</p>
                 </div>
               )}
             </CardContent>
