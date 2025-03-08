@@ -16,8 +16,18 @@ interface NewsFeedProps {
 }
 
 export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
+  // Deduplicate initial stories
+  const dedupedInitialStories = React.useMemo(() => {
+    const seen = new Set<string>();
+    return initialStories.filter(story => {
+      if (seen.has(story.id)) return false;
+      seen.add(story.id);
+      return true;
+    });
+  }, [initialStories]);
+
   // State for stories and pagination
-  const [stories, setStories] = useState<Story[]>(initialStories);
+  const [stories, setStories] = useState<Story[]>(dedupedInitialStories);
   const [currentStory, setCurrentStory] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,7 +62,9 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
         const hasNewStories = data.stories.some((s: Story) => !oldStoryIds.has(s.id));
         
         if (hasNewStories) {
-          setStories(data.stories);
+          // Ensure no duplicates in new stories
+          const newStories = deduplicateStories(data.stories);
+          setStories(newStories);
           setPage(1);
           setHasMore(data.pagination?.hasMore ?? false);
           
@@ -115,6 +127,23 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
     }
   }, [stories.length]);
 
+  // Utility function to deduplicate stories
+  const deduplicateStories = (newStories: Story[]): Story[] => {
+    const seen = new Set<string>();
+    return newStories.filter(story => {
+      if (seen.has(story.id)) return false;
+      seen.add(story.id);
+      return true;
+    });
+  };
+
+  // Utility function to merge stories without duplicates
+  const mergeStoriesWithoutDuplicates = (existingStories: Story[], newStories: Story[]): Story[] => {
+    const seenIds = new Set(existingStories.map(story => story.id));
+    const uniqueNewStories = newStories.filter(story => !seenIds.has(story.id));
+    return [...existingStories, ...uniqueNewStories];
+  };
+
   // Load more stories
   const loadMoreStories = async () => {
     if (isLoading || !hasMore) return;
@@ -133,11 +162,11 @@ export default function NewsFeed({ initialStories = [] }: NewsFeedProps) {
       const data = await res.json();
       
       if (data.stories && data.stories.length > 0) {
+        // Deduplicate before adding to state
+        const dedupedNewStories = deduplicateStories(data.stories);
+        
         setStories(prevStories => {
-          // Filter out duplicates (in case the API returns the same story)
-          const newStoryIds = new Set(data.stories.map((s: Story) => s.id));
-          const filteredPrevStories = prevStories.filter(s => !newStoryIds.has(s.id));
-          return [...filteredPrevStories, ...data.stories];
+          return mergeStoriesWithoutDuplicates(prevStories, dedupedNewStories);
         });
         
         setPage(nextPage);

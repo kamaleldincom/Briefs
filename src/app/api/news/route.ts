@@ -100,48 +100,54 @@ export async function GET(request: NextRequest) {
     }
     
     // Check if we should include any priority topics (like Sudan)
-const priorityTopics = CONTENT_PREFERENCES?.priorityTopics || [];
-if (priorityTopics.length > 0 && page === 1) {
-  // We'll try to incorporate priority topics in the first page
-  const storiesWithPriorities = await storyManager.incorporatePriorityTopics(
-    stories, 
-    priorityTopics
-  );
-  
-  // Update cache
-  responseCache = {
-    stories: storiesWithPriorities,
-    timestamp: now,
-    params: cacheParams
-  };
-  
-  // Return response
-  return NextResponse.json({
-    stories: sanitizeStories(storiesWithPriorities),
-    pagination: {
-      currentPage: page,
-      pageSize,
-      hasMore: stories.length >= pageSize // If we had enough stories originally, there are likely more
+    const priorityTopics = CONTENT_PREFERENCES?.priorityTopics || [];
+    if (priorityTopics.length > 0 && page === 1) {
+      // We'll try to incorporate priority topics in the first page
+      const storiesWithPriorities = await storyManager.incorporatePriorityTopics(
+        stories, 
+        priorityTopics
+      );
+      
+      // Ensure we have no duplicates after incorporating priorities
+      const dedupedStories = removeDuplicateStories(storiesWithPriorities);
+      
+      // Update cache
+      responseCache = {
+        stories: dedupedStories,
+        timestamp: now,
+        params: cacheParams
+      };
+      
+      // Return response
+      return NextResponse.json({
+        stories: sanitizeStories(dedupedStories),
+        pagination: {
+          currentPage: page,
+          pageSize,
+          hasMore: stories.length >= pageSize // If we had enough stories originally, there are likely more
+        }
+      });
     }
-  });
-}
+    
+    // Ensure we have no duplicates
+    const dedupedStories = removeDuplicateStories(stories);
     
     // Update cache
     responseCache = {
-      stories: stories,
+      stories: dedupedStories,
       timestamp: now,
       params: cacheParams
     };
     
     // Return response
     return NextResponse.json({
-  stories: sanitizeStories(stories),
-  pagination: {
-    currentPage: page,
-    pageSize,
-    hasMore: stories.length === pageSize
-  }
-});
+      stories: sanitizeStories(dedupedStories),
+      pagination: {
+        currentPage: page,
+        pageSize,
+        hasMore: stories.length === pageSize
+      }
+    });
   } catch (error) {
     console.error('API Route: Failed to fetch or process news:', error);
     return NextResponse.json(
@@ -164,64 +170,16 @@ async function processArticlesInBackground(storyManager: any, articles: any[]) {
   }
 }
 
-// Incorporate priority topics (like Sudan news)
-async function incorporatePriorityTopics(
-  storyManager: any, 
-  regularStories: Story[], 
-  priorityTopics: any[]
-): Promise<Story[]> {
-  try {
-    const result = [...regularStories];
-    
-    // For each priority topic
-    for (const topic of priorityTopics) {
-      // Skip if minimum count already met
-      const existingCount = regularStories.filter(story => 
-        storyContainsTopic(story, topic.keywords)
-      ).length;
-      
-      if (existingCount >= topic.minCount) {
-        console.log(`Already have ${existingCount} stories about ${topic.name}`);
-        continue;
-      }
-      
-      // Search for stories about this topic
-      const topicStories = await storyManager.getStoriesByKeywords(
-        topic.keywords, 
-        { maxAge: topic.maxAge }
-      );
-      
-      // Add priority stories not already in the regular set
-      if (topicStories && topicStories.length > 0) {
-        const storiesToAdd = topicStories.filter(topicStory => 
-          !regularStories.some(regStory => regStory.id === topicStory.id)
-        );
-        
-        // Add to result, replacing latest regular stories to maintain pageSize
-        if (storiesToAdd.length > 0) {
-          const neededCount = Math.min(
-            topic.minCount - existingCount,
-            storiesToAdd.length
-          );
-          
-          if (neededCount > 0) {
-            console.log(`Adding ${neededCount} stories about ${topic.name}`);
-            
-            // Remove stories from the end to make room
-            result.splice(result.length - neededCount, neededCount);
-            
-            // Add priority stories
-            result.push(...storiesToAdd.slice(0, neededCount));
-          }
-        }
-      }
+// Function to remove duplicate stories based on ID
+function removeDuplicateStories(stories: Story[]): Story[] {
+  const seen = new Set<string>();
+  return stories.filter(story => {
+    if (seen.has(story.id)) {
+      return false; // Skip this duplicate
     }
-    
-    return result;
-  } catch (error) {
-    console.error('Error incorporating priority topics:', error);
-    return regularStories; // Return original stories if anything goes wrong
-  }
+    seen.add(story.id);
+    return true;
+  });
 }
 
 // Ensure stories have all required fields and convert dates to strings
@@ -256,10 +214,4 @@ function sanitizeStories(stories: any[]): Story[] {
       relatedTopics: Array.isArray(story.analysis?.relatedTopics) ? story.analysis.relatedTopics : []
     }
   }));
-}
-
-// Check if a story contains a topic
-function storyContainsTopic(story: Story, keywords: string[]): boolean {
-  const content = `${story.title} ${story.summary} ${story.content || ''}`.toLowerCase();
-  return keywords.some(keyword => content.includes(keyword.toLowerCase()));
 }
